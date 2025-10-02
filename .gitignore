@@ -1,0 +1,27 @@
+# flyctl launch added from venv\.gitignore
+# Created by venv; see https://docs.python.org/3/library/venv.html
+
+venv/**/*
+fly.toml
+
+# 🔒 Защита пользовательских данных
+users.json
+
+# 🧹 Кэш и временные файлы
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+# 📦 Установленные зависимости
+*.egg-info/
+dist/
+build/
+
+# 📁 IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.env
+*.bak
+*.tmp
