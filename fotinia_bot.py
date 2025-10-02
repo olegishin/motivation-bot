@@ -650,12 +650,12 @@ if __name__ == "__main__":
 
         # ---------------- Запуск webhook-сервера ----------------
         logger.info(f"🟢 Webhook-сервер слушает на порту {PORT}")
-        # Запуск webhook напрямую — он сам управляет event loop
         await app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             webhook_url=webhook_url
         )
 
-    # Стандартный запуск без вложенного loop
-    asyncio.run(main())
+    # Запуск без вложенного event loop
+    if __name__ == "__main__":
+        asyncio.run(main())
