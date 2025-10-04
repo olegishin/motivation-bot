@@ -65,6 +65,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ---------------- Кнопки и клавиатуры ----------------
+# ---------------- Кнопки и клавиатуры ----------------
 BTN_MOTIVATE = "💪 Мотивируй меня"
 BTN_RANDOM_GOAL = "🎯 Случайная цель"
 BTN_CHALLENGE = "⚔️ Челлендж дня"
@@ -72,21 +73,20 @@ BTN_RULES = "📜 Правила Вселенной"
 BTN_SHOW_USERS = "📂 Смотреть users.json"
 BTN_STATS = "📊 Статистика пользователей"
 
-MAIN_MARKUP = InlineKeyboardMarkup([
-    [InlineKeyboardButton(BTN_MOTIVATE, callback_data="motivate")],
-    [InlineKeyboardButton(BTN_RANDOM_GOAL, callback_data="random_goal")],
-    [InlineKeyboardButton(BTN_CHALLENGE, callback_data="challenge")],
-    [InlineKeyboardButton(BTN_RULES, callback_data="rules")]
-])
+MAIN_KEYBOARD = [
+    [BTN_MOTIVATE, BTN_RANDOM_GOAL],
+    [BTN_CHALLENGE, BTN_RULES]
+]
 
-OWNER_MARKUP = InlineKeyboardMarkup([
-    [InlineKeyboardButton(BTN_MOTIVATE, callback_data="motivate")],
-    [InlineKeyboardButton(BTN_RANDOM_GOAL, callback_data="random_goal")],
-    [InlineKeyboardButton(BTN_CHALLENGE, callback_data="challenge")],
-    [InlineKeyboardButton(BTN_RULES, callback_data="rules")],
-    [InlineKeyboardButton(BTN_SHOW_USERS, callback_data="show_users")],
-    [InlineKeyboardButton(BTN_STATS, callback_data="stats")]
-])
+ADMIN_BUTTONS = [
+    [BTN_SHOW_USERS, BTN_STATS]
+]
+
+# Клавиатура для обычных пользователей
+MAIN_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+
+# Клавиатура для владельца и админов
+OWNER_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD + ADMIN_BUTTONS, resize_keyboard=True)
 
 # ---------------- Утилиты ----------------
 def load_json(filepath: Path) -> list | dict:
@@ -526,14 +526,13 @@ async def post_init(app: Application):
     except Exception as e:
         logger.error(f"❌ Не удалось уведомить владельца: {e}")
 
-
 #-------------------Запуск------------------------
 def register_handlers(app):
     # Команды
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("pay", handle_pay))
 
-    # Кнопки
+    # Обработка текста кнопок
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_MOTIVATE)}$"), handle_motivation))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_RANDOM_GOAL)}$"), handle_random_goal))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_CHALLENGE)}$"), handle_challenge))
@@ -541,41 +540,115 @@ def register_handlers(app):
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_SHOW_USERS)}$"), show_users_file))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_STATS)}$"), user_stats))
 
-    # Колбэки и неизвестный текст
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    # Неизвестный текст
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_text))
 
+# Добавляем хэндлеры
+async def handle_motivation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    users_data = context.bot_data.get("users", {})
+    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
+        await update.message.reply_text("❌ Доступ ограничен.")
+        return
+    phrases = load_json(PHRASES_FILE)
+    if not phrases:
+        await update.message.reply_text("⚠️ Список мотиваций пуст.")
+        return
+    user_name = update.effective_user.first_name
+    phrase = random.choice(phrases).format(name=user_name)
+    await update.message.reply_text(f"💬 {phrase}", parse_mode="HTML")
+
+async def handle_random_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    users_data = context.bot_data.get("users", {})
+    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
+        await update.message.reply_text("❌ Доступ ограничен.")
+        return
+    goals = load_json(GOALS_FILE)
+    if not goals:
+        await update.message.reply_text("⚠️ Список целей пуст.")
+        return
+    user_name = update.effective_user.first_name
+    goal = random.choice(goals).format(name=user_name)
+    await update.message.reply_text(f"🎯 <b>{goal}</b>", parse_mode="HTML")
+
+async def handle_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    users_data = context.bot_data.get("users", {})
+    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
+        await update.message.reply_text("❌ Доступ ограничен.")
+        return
+    challenges = load_json(CHALLENGES_FILE)
+    if not challenges:
+        await update.message.reply_text("⚠️ Список челленджей пуст.")
+        return
+    user_name = update.effective_user.first_name
+    new_challenge = random.choice(challenges).format(name=user_name)
+    keyboard = ReplyKeyboardMarkup([[BTN_CHALLENGE, BTN_RULES]], resize_keyboard=True)
+    await update.message.reply_text(f"🔥 <b>{new_challenge}</b>\nНажми 'Челлендж' для нового!", parse_mode="HTML", reply_markup=keyboard)
+
+async def handle_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    users_data = context.bot_data.get("users", {})
+    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
+        await update.message.reply_text("❌ Доступ ограничен.")
+        return
+    rules = load_json(RULES_FILE)
+    if not rules:
+        await update.message.reply_text("⚠️ Список правил пуст.")
+        return
+    user_name = update.effective_user.first_name
+    rule = random.choice(rules).format(name=user_name)
+    await update.message.reply_text(f"📜 <b>{rule}</b>", parse_mode="HTML")
+
+async def handle_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("💳 Оплата пока не реализована. Скоро!")
+
+async def show_users_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_CHAT_ID:
+        return
+    try:
+        if not USERS_FILE.exists():
+            await update.message.reply_text("Файл users.json еще не создан.")
+            return
+        await update.message.reply_document(document=open(USERS_FILE, "rb"))
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка при отправке файла: {e}")
+
+async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_CHAT_ID:
+        return
+    users = load_users()
+    total = len(users)
+    active = sum(1 for u in users.values() if u.get("active"))
+    await update.message.reply_text(f"👥 Всего: {total}\n✅ Активных: {active}\n❌ Неактивных: {total - active}")
+
+async def handle_unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❓ Неизвестная команда. Пожалуйста, используй кнопки.")
 
 def run_polling():
     logger.warning("Запуск в режиме polling (локально)")
-
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
         .post_init(post_init)
         .build()
     )
-
     register_handlers(app)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-
 async def run_webhook():
     logger.info("Запуск в режиме webhook (Fly.io)")
-
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
         .post_init(post_init)
         .build()
     )
-
     register_handlers(app)
-
     APP_NAME = os.getenv("FLY_APP_NAME")
     PORT = int(os.getenv("PORT", 8443))
     webhook_url = f"https://{APP_NAME}.fly.dev/{BOT_TOKEN}"
-
     await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
@@ -586,4 +659,7 @@ async def run_webhook():
 
 # ---------------- Точка входа ----------------
 if __name__ == "__main__":
-    run_polling()
+    if os.getenv("FLY_APP_NAME"):
+        asyncio.run(run_webhook())
+    else:
+        run_polling()
