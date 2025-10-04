@@ -216,8 +216,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 users_data[chat_id_str]["grace_period_end"] = (datetime.now(get_user_timezone(users_data, chat_id_int)) + timedelta(days=4)).isoformat()
                 save_users(users_data)
                 context.bot_data["users"] = users_data
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Да, хочу!", callback_data="extend_demo")]])
-                await update.message.reply_text("❌ Демо-период закончился. Спасибо за тестирование! Хотите продлить доступ и получить полную поддержку?", reply_markup=keyboard)
+                await update.message.reply_text("❌ Демо-период закончился. Спасибо за тестирование! Хотите продлить доступ? Напишите администратору.", reply_markup=MAIN_MARKUP)
                 return
 
     save_users(users_data)
@@ -227,8 +226,6 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_send(context.application, OWNER_CHAT_ID, f"👤 Новый пользователь: {name} (ID: {chat_id_int})")
 
     keyboard = OWNER_MARKUP if is_admin else MAIN_MARKUP
-    
-    # 💡 ИСПРАВЛЕНИЕ №2: Проверка на None перед форматированием даты
     demo_exp = users_data[chat_id_str].get("demo_expiration")
     expiration_date = datetime.fromisoformat(demo_exp).strftime("%d.%m.%Y %H:%M") if demo_exp else "бессрочно"
     
@@ -240,310 +237,9 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text, reply_markup=keyboard)
 
-# ... (остальные хэндлеры без изменений, они выглядят хорошо)
 async def handle_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("💳 Оплата пока не реализована. Скоро!")
 
-async def handle_motivation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    users_data = context.bot_data.get("users", {})
-    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
-        await update.message.reply_text("❌ Доступ ограничен.")
-        return
-
-    phrases = load_json(PHRASES_FILE)
-    if not phrases:
-        await update.message.reply_text("⚠️ Список мотиваций пуст.")
-        return
-
-    user_name = update.effective_user.first_name
-    phrase = random.choice(phrases).format(name=user_name)
-    await update.message.reply_text(f"💬 {phrase}", parse_mode="HTML")
-
-
-async def handle_random_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    users_data = context.bot_data.get("users", {})
-    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
-        await update.message.reply_text("❌ Доступ ограничен.")
-        return
-
-    goals = load_json(GOALS_FILE)
-    if not goals:
-        await update.message.reply_text("⚠️ Список целей пуст.")
-        return
-
-    user_name = update.effective_user.first_name
-    goal = random.choice(goals).format(name=user_name)
-    await update.message.reply_text(f"🎯 <b>{goal}</b>", parse_mode="HTML")
-
-
-# ---------------- Хэндлер Челленджа ----------------
-async def handle_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    users_data = context.bot_data.get("users", {})
-
-    # Проверка доступа
-    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
-        await update.message.reply_text("❌ Доступ ограничен.")
-        return
-
-    # Загрузка списка челленджей
-    challenges = load_json(CHALLENGES_FILE)
-    if not challenges:
-        await update.message.reply_text("⚠️ Список челленджей пуст.")
-        return
-
-    user_name = update.effective_user.first_name
-    challenge = random.choice(challenges).format(name=user_name)
-
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ Принять", callback_data=f"accept_challenge:{challenge}"),
-            InlineKeyboardButton("🎲 Новый", callback_data="new_challenge")
-        ]
-    ])
-
-    await update.message.reply_text(
-        f"🔥 <b>{challenge}</b>",
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-
-# ---------------- Обработка callback'ов ----------------
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    # Продление демо
-    if query.data == "extend_demo":
-        await query.edit_message_text(
-            "💳 Для продления доступа, пожалуйста, свяжитесь с администратором (пока что)."
-        )
-        return
-
-    # Новый челлендж
-    if query.data == "challenge":
-        challenges = load_json(CHALLENGES_FILE)
-        if not challenges:
-            await query.edit_message_text("⚠️ Список челленджей пуст.")
-            return
-        user_name = query.from_user.first_name
-        new_challenge = random.choice(challenges).format(name=user_name)
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Принять", callback_data=f"accept_challenge:{new_challenge}"),
-                InlineKeyboardButton("🎲 Новый", callback_data="new_challenge")
-            ]
-        ])
-        await query.edit_message_text(
-            f"🔥 <b>{new_challenge}</b>",
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-        return
-
-    # Принятие челленджа
-    if query.data.startswith("accept_challenge:"):
-        challenge_text = query.data.split(":", 1)[1]
-        await query.edit_message_text(
-            f"💪 Ты принял челлендж:\n\n🔥 <b>{challenge_text}</b>",
-            parse_mode="HTML"
-        )
-        return
-
-    # Новый челлендж
-    elif query.data == "new_challenge":
-        challenges = load_json(CHALLENGES_FILE)
-        if not challenges:
-            await query.edit_message_text("⚠️ Список челленджей пуст.")
-            return
-        user_name = query.from_user.first_name
-        new_challenge = random.choice(challenges).format(name=user_name)
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Принять", callback_data=f"accept_challenge:{new_challenge}"),
-                InlineKeyboardButton("🎲 Новый", callback_data="new_challenge")
-            ]
-        ])
-        await query.edit_message_text(
-            f"🔥 <b>{new_challenge}</b>",
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-
-async def handle_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    users_data = context.bot_data.get("users", {})
-    if not users_data.get(str(chat_id), {}).get("active", True) or is_grace_period_expired(users_data, chat_id):
-        await update.message.reply_text("❌ Доступ ограничен.")
-        return
-
-    rules = load_json(RULES_FILE)
-    if not rules:
-        await update.message.reply_text("⚠️ Список правил пуст.")
-        return
-
-    user_name = update.effective_user.first_name
-    rule = random.choice(rules).format(name=user_name)
-    await update.message.reply_text(f"📜 <b>{rule}</b>", parse_mode="HTML")
-
-
-async def handle_unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❓ Неизвестная команда. Пожалуйста, используй кнопки.")
-
-
-async def show_users_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_CHAT_ID: return
-    try:
-        if not USERS_FILE.exists():
-            await update.message.reply_text("Файл users.json еще не создан.")
-            return
-        await update.message.reply_document(document=open(USERS_FILE, "rb"))
-    except Exception as e:
-        await update.message.reply_text(f"Ошибка при отправке файла: {e}")
-
-async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_CHAT_ID: return
-    users = load_users()
-    total = len(users)
-    active = sum(1 for u in users.values() if u.get("active"))
-    await update.message.reply_text(f"👥 Всего: {total}\n✅ Активных: {active}\n❌ Неактивных: {total - active}")
-
-# ... (и так далее для всех хэндлеров)
-
-# ---------------- Планировщик ----------------
-async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    chat_id = job.chat_id
-    filename = job.data["filename"]
-    log_message = job.data["log_message"]
-
-    users_data = context.bot_data.get("users", {})
-    user_info = users_data.get(str(chat_id), {})
-
-    if not user_info.get("active") or is_demo_expired(users_data, chat_id) or is_grace_period_expired(users_data, chat_id):
-        logger.info(f"⏩ Пропуск рассылки '{log_message}' для неактивного пользователя {chat_id}")
-        return
-
-    phrases = load_json(BASE_DIR / filename)
-    if not phrases:
-        logger.warning(f"⚠️ Файл {filename} пуст, рассылка для {chat_id} отменена.")
-        return
-
-    name = user_info.get("name", "друг")
-    phrase = random.choice(phrases).format(name=name)
-
-    if await safe_send(context.application, chat_id, phrase):
-        logger.info(f"✅ {log_message} для {chat_id}")
-    else:
-        logger.warning(f"⚠️ Не удалось отправить {log_message} для {chat_id}")
-
-async def check_demo_reminders(context: ContextTypes.DEFAULT_TYPE):
-    users_data = context.bot_data.get("users", {})
-    utc_now = datetime.now(ZoneInfo("UTC"))
-    for chat_id_str, user in users_data.items():
-        if user.get("demo_expiration"):
-            try:
-                chat_id = int(chat_id_str)
-                demo_end = datetime.fromisoformat(user["demo_expiration"])
-                time_left = demo_end - utc_now
-                if timedelta(days=0) < time_left <= timedelta(days=1):
-                    await safe_send(context.application, chat_id, "⏰ Напоминание: ваш тестовый доступ к боту закончится через 24 часа.")
-            except (ValueError, TypeError):
-                continue
-
-
-# ---------------- Main / запуск ----------------
-from pathlib import Path
-from datetime import time
-from zoneinfo import ZoneInfo
-
-BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
-
-async def post_init(app: Application):
-    logger.info("📦 Инициализация post_init...")
-
-    # Загружаем пользователей
-    users_data = load_users()
-    app.bot_data["users"] = users_data
-    logger.info(f"👥 Загружено пользователей: {len(users_data)}")
-
-    # Очищаем старые задачи, чтобы не было дублей
-    for job in app.job_queue.jobs():
-        job.schedule_removal()
-    logger.info("🧹 Старые задачи планировщика очищены.")
-
-    # Расписание рассылок
-    schedules = [
-        {"hour": 8, "minute": 0, "filename": "fotinia_morning_phrases.json", "log": "🌅 Утро"},
-        {"hour": 12, "minute": 0, "filename": "fotinia_phrases.json", "log": "🎲 Случайная"},
-        {"hour": 15, "minute": 0, "filename": "fotinia_day_phrases.json", "log": "☀️ День"},
-        {"hour": 18, "minute": 0, "filename": "fotinia_evening_phrases.json", "log": "🌙 Вечер"},
-    ]
-
-    total_jobs = 0
-    for chat_id_str, user in users_data.items():
-        try:
-            tz = ZoneInfo(user.get("timezone", "Europe/Kyiv"))
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка с таймзоной пользователя {chat_id_str}: {e}, используем Europe/Kyiv")
-            tz = ZoneInfo("Europe/Kyiv")
-
-        for job_info in schedules:
-            json_path = DATA_DIR / job_info["filename"]
-            if not json_path.exists():
-                logger.warning(f"⚠️ Файл {json_path} не найден, рассылка пропущена")
-                continue
-
-            try:
-                app.job_queue.run_daily(
-                    send_scheduled_message,
-                    time=time(hour=job_info["hour"], minute=job_info["minute"], tzinfo=tz),
-                    chat_id=int(chat_id_str),
-                    data={"filename": str(json_path), "log_message": job_info["log"]},
-                    name=f"{job_info['log']}_{chat_id_str}"
-                )
-                total_jobs += 1
-            except Exception as e:
-                logger.error(f"❌ Ошибка при добавлении job для {chat_id_str}: {e}")
-
-    # Ежедневная проверка демо-настроек
-    try:
-        app.job_queue.run_daily(
-            check_demo_reminders,
-            time=time(hour=10, minute=0, tzinfo=ZoneInfo("UTC"))
-        )
-    except Exception as e:
-        logger.error(f"❌ Не удалось добавить job check_demo_reminders: {e}")
-
-    logger.info(f"📅 Запланировано {total_jobs} рассылок и 1 ежедневная проверка напоминаний.")
-
-    # Уведомление владельца
-    try:
-        await app.bot.send_message(chat_id=OWNER_CHAT_ID, text="✅ Бот успешно запущен/перезапущен!")
-    except Exception as e:
-        logger.error(f"❌ Не удалось уведомить владельца: {e}")
-
-#-------------------Запуск------------------------
-def register_handlers(app):
-    # Команды
-    app.add_handler(CommandHandler("start", handle_start))
-    app.add_handler(CommandHandler("pay", handle_pay))
-
-    # Обработка текста кнопок
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_MOTIVATE)}$"), handle_motivation))
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_RANDOM_GOAL)}$"), handle_random_goal))
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_CHALLENGE)}$"), handle_challenge))
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_RULES)}$"), handle_rules))
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_SHOW_USERS)}$"), show_users_file))
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_STATS)}$"), user_stats))
-
-    # Неизвестный текст
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_text))
-
-# Добавляем хэндлеры
 async def handle_motivation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     users_data = context.bot_data.get("users", {})
@@ -601,8 +297,8 @@ async def handle_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rule = random.choice(rules).format(name=user_name)
     await update.message.reply_text(f"📜 <b>{rule}</b>", parse_mode="HTML")
 
-async def handle_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💳 Оплата пока не реализована. Скоро!")
+async def handle_unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❓ Неизвестная команда. Пожалуйста, используй кнопки.")
 
 async def show_users_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_CHAT_ID:
@@ -623,28 +319,132 @@ async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active = sum(1 for u in users.values() if u.get("active"))
     await update.message.reply_text(f"👥 Всего: {total}\n✅ Активных: {active}\n❌ Неактивных: {total - active}")
 
-async def handle_unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❓ Неизвестная команда. Пожалуйста, используй кнопки.")
+# ---------------- Обработка callback'ов ----------------
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    # Продление демо
+    if query.data == "extend_demo":
+        await query.edit_message_text(
+            "💳 Для продления доступа, пожалуйста, свяжитесь с администратором (пока что)."
+        )
+        return
+
+# ---------------- Планировщик ----------------
+async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    chat_id = job.chat_id
+    filename = job.data["filename"]
+    log_message = job.data["log_message"]
+
+    users_data = context.bot_data.get("users", {})
+    user_info = users_data.get(str(chat_id), {})
+
+    if not user_info.get("active") or is_demo_expired(users_data, chat_id) or is_grace_period_expired(users_data, chat_id):
+        logger.info(f"⏩ Пропуск рассылки '{log_message}' для неактивного пользователя {chat_id}")
+        return
+
+    phrases = load_json(BASE_DIR / filename)
+    if not phrases:
+        logger.warning(f"⚠️ Файл {filename} пуст, рассылка для {chat_id} отменена.")
+        return
+
+    name = user_info.get("name", "друг")
+    phrase = random.choice(phrases).format(name=name)
+
+    if await safe_send(context.application, chat_id, phrase):
+        logger.info(f"✅ {log_message} для {chat_id}")
+    else:
+        logger.warning(f"⚠️ Не удалось отправить {log_message} для {chat_id}")
+
+async def check_demo_reminders(context: ContextTypes.DEFAULT_TYPE):
+    users_data = context.bot_data.get("users", {})
+    utc_now = datetime.now(ZoneInfo("UTC"))
+    for chat_id_str, user in users_data.items():
+        if user.get("demo_expiration"):
+            try:
+                chat_id = int(chat_id_str)
+                demo_end = datetime.fromisoformat(user["demo_expiration"])
+                time_left = demo_end - utc_now
+                if timedelta(days=0) < time_left <= timedelta(days=1):
+                    await safe_send(context.application, chat_id, "⏰ Напоминание: ваш тестовый доступ к боту закончится через 24 часа.")
+            except (ValueError, TypeError):
+                continue
+
+# ---------------- Main / запуск ----------------
+async def post_init(app: Application):
+    logger.info("📦 Инициализация post_init...")
+    users_data = load_users()
+    app.bot_data["users"] = users_data
+    logger.info(f"👥 Загружено пользователей: {len(users_data)}")
+    for job in app.job_queue.jobs():
+        job.schedule_removal()
+    logger.info("🧹 Старые задачи планировщика очищены.")
+    schedules = [
+        {"hour": 8, "minute": 0, "filename": "fotinia_morning_phrases.json", "log": "🌅 Утро"},
+        {"hour": 12, "minute": 0, "filename": "fotinia_phrases.json", "log": "🎲 Случайная"},
+        {"hour": 15, "minute": 0, "filename": "fotinia_day_phrases.json", "log": "☀️ День"},
+        {"hour": 18, "minute": 0, "filename": "fotinia_evening_phrases.json", "log": "🌙 Вечер"},
+    ]
+    total_jobs = 0
+    for chat_id_str, user in users_data.items():
+        try:
+            tz = ZoneInfo(user.get("timezone", "Europe/Kyiv"))
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка с таймзоной пользователя {chat_id_str}: {e}, используем Europe/Kyiv")
+            tz = ZoneInfo("Europe/Kyiv")
+        for job_info in schedules:
+            json_path = DATA_DIR / job_info["filename"]
+            if not json_path.exists():
+                logger.warning(f"⚠️ Файл {json_path} не найден, рассылка пропущена")
+                continue
+            try:
+                app.job_queue.run_daily(
+                    send_scheduled_message,
+                    time=time(hour=job_info["hour"], minute=job_info["minute"], tzinfo=tz),
+                    chat_id=int(chat_id_str),
+                    data={"filename": str(json_path), "log_message": job_info["log"]},
+                    name=f"{job_info['log']}_{chat_id_str}"
+                )
+                total_jobs += 1
+            except Exception as e:
+                logger.error(f"❌ Ошибка при добавлении job для {chat_id_str}: {e}")
+    try:
+        app.job_queue.run_daily(
+            check_demo_reminders,
+            time=time(hour=10, minute=0, tzinfo=ZoneInfo("UTC"))
+        )
+    except Exception as e:
+        logger.error(f"❌ Не удалось добавить job check_demo_reminders: {e}")
+    logger.info(f"📅 Запланировано {total_jobs} рассылок и 1 ежедневная проверка напоминаний.")
+    try:
+        await app.bot.send_message(chat_id=OWNER_CHAT_ID, text="✅ Бот успешно запущен/перезапущен!")
+    except Exception as e:
+        logger.error(f"❌ Не удалось уведомить владельца: {e}")
+
+#-------------------Запуск------------------------
+def register_handlers(app):
+    app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(CommandHandler("pay", handle_pay))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_MOTIVATE)}$"), handle_motivation))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_RANDOM_GOAL)}$"), handle_random_goal))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_CHALLENGE)}$"), handle_challenge))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_RULES)}$"), handle_rules))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_SHOW_USERS)}$"), show_users_file))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_STATS)}$"), user_stats))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_text))
+    app.add_handler(CallbackQueryHandler(handle_callback))
 
 def run_polling():
     logger.warning("Запуск в режиме polling (локально)")
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .post_init(post_init)
-        .build()
-    )
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
     register_handlers(app)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 async def run_webhook():
     logger.info("Запуск в режиме webhook (Fly.io)")
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .post_init(post_init)
-        .build()
-    )
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
     register_handlers(app)
     APP_NAME = os.getenv("FLY_APP_NAME")
     PORT = int(os.getenv("PORT", 8443))
@@ -660,12 +460,7 @@ async def run_webhook():
 # ---------------- Точка входа ----------------
 if __name__ == "__main__":
     if os.getenv("FLY_APP_NAME"):
-        app = (
-            ApplicationBuilder()
-            .token(BOT_TOKEN)
-            .post_init(post_init)
-            .build()
-        )
+        app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
         register_handlers(app)
         APP_NAME = os.getenv("FLY_APP_NAME")
         PORT = int(os.getenv("PORT", 8443))
