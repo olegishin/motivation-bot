@@ -69,24 +69,24 @@ BTN_MOTIVATE = "💪 Мотивируй меня"
 BTN_RANDOM_GOAL = "🎯 Случайная цель"
 BTN_CHALLENGE = "⚔️ Челлендж дня"
 BTN_RULES = "📜 Правила Вселенной"
-
 BTN_SHOW_USERS = "📂 Смотреть users.json"
 BTN_STATS = "📊 Статистика пользователей"
 
-MAIN_KEYBOARD = [
-    [BTN_MOTIVATE, BTN_RANDOM_GOAL],
-    [BTN_CHALLENGE, BTN_RULES]
-]
+MAIN_MARKUP = InlineKeyboardMarkup([
+    [InlineKeyboardButton(BTN_MOTIVATE, callback_data="motivate")],
+    [InlineKeyboardButton(BTN_RANDOM_GOAL, callback_data="random_goal")],
+    [InlineKeyboardButton(BTN_CHALLENGE, callback_data="challenge")],
+    [InlineKeyboardButton(BTN_RULES, callback_data="rules")]
+])
 
-ADMIN_BUTTONS = [
-    [BTN_SHOW_USERS, BTN_STATS]
-]
-
-# Клавиатура для обычных пользователей
-MAIN_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-
-# Клавиатура для владельца и админов
-OWNER_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD + ADMIN_BUTTONS, resize_keyboard=True)
+OWNER_MARKUP = InlineKeyboardMarkup([
+    [InlineKeyboardButton(BTN_MOTIVATE, callback_data="motivate")],
+    [InlineKeyboardButton(BTN_RANDOM_GOAL, callback_data="random_goal")],
+    [InlineKeyboardButton(BTN_CHALLENGE, callback_data="challenge")],
+    [InlineKeyboardButton(BTN_RULES, callback_data="rules")],
+    [InlineKeyboardButton(BTN_SHOW_USERS, callback_data="show_users")],
+    [InlineKeyboardButton(BTN_STATS, callback_data="stats")]
+])
 
 # ---------------- Утилиты ----------------
 def load_json(filepath: Path) -> list | dict:
@@ -322,21 +322,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Принятие челленджа
-    if query.data.startswith("accept_challenge:"):
-        challenge_text = query.data.split(":", 1)[1]
-        await query.edit_message_text(
-            f"💪 Ты принял челлендж:\n\n🔥 <b>{challenge_text}</b>",
-            parse_mode="HTML"
-        )
-
     # Новый челлендж
-    elif query.data == "new_challenge":
+    if query.data == "challenge":
         challenges = load_json(CHALLENGES_FILE)
         if not challenges:
             await query.edit_message_text("⚠️ Список челленджей пуст.")
             return
-
         user_name = query.from_user.first_name
         new_challenge = random.choice(challenges).format(name=user_name)
         keyboard = InlineKeyboardMarkup([
@@ -350,7 +341,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=keyboard
         )
+        return
 
+    # Принятие челленджа
+    if query.data.startswith("accept_challenge:"):
+        challenge_text = query.data.split(":", 1)[1]
+        await query.edit_message_text(
+            f"💪 Ты принял челлендж:\n\n🔥 <b>{challenge_text}</b>",
+            parse_mode="HTML"
+        )
+        return
+
+    # Новый челлендж
+    elif query.data == "new_challenge":
+        challenges = load_json(CHALLENGES_FILE)
+        if not challenges:
+            await query.edit_message_text("⚠️ Список челленджей пуст.")
+            return
+        user_name = query.from_user.first_name
+        new_challenge = random.choice(challenges).format(name=user_name)
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Принять", callback_data=f"accept_challenge:{new_challenge}"),
+                InlineKeyboardButton("🎲 Новый", callback_data="new_challenge")
+            ]
+        ])
+        await query.edit_message_text(
+            f"🔥 <b>{new_challenge}</b>",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
 
 async def handle_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -566,23 +586,4 @@ async def run_webhook():
 
 # ---------------- Точка входа ----------------
 if __name__ == "__main__":
-    if os.getenv("FLY_APP_NAME"):
-        app = (
-            ApplicationBuilder()
-            .token(BOT_TOKEN)
-            .post_init(post_init)
-            .build()
-        )
-        register_handlers(app)
-        APP_NAME = os.getenv("FLY_APP_NAME")
-        PORT = int(os.getenv("PORT", 8443))
-        webhook_url = f"https://{APP_NAME}.fly.dev/{BOT_TOKEN}"
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=BOT_TOKEN,
-            webhook_url=webhook_url,
-            allowed_updates=Update.ALL_TYPES
-        )
-    else:
-        run_polling()
+    run_polling()
