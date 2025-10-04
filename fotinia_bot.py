@@ -227,8 +227,13 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = OWNER_MARKUP if is_admin else MAIN_MARKUP
     demo_exp = users_data[chat_id_str].get("demo_expiration")
-    expiration_date = datetime.fromisoformat(demo_exp).strftime("%d.%m.%Y %H:%M") if demo_exp else "бессрочно"
-    
+    expiration_date = "бессрочно"
+    if demo_exp:
+        try:
+            expiration_date = datetime.fromisoformat(demo_exp).strftime("%d.%m.%Y %H:%M")
+        except ValueError:
+            logger.warning(f"⚠️ Некорректная дата demo_expiration для {chat_id_int}, установлено 'бессрочно'")
+
     text = (
         f"Привет, {name}! Я — Фотиния, твой помощник по привычкам и мотивации.\n"
         f"Твой доступ активен до: {expiration_date}.\n\n"
