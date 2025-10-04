@@ -660,6 +660,22 @@ async def run_webhook():
 # ---------------- Точка входа ----------------
 if __name__ == "__main__":
     if os.getenv("FLY_APP_NAME"):
-        asyncio.run(run_webhook())
+        app = (
+            ApplicationBuilder()
+            .token(BOT_TOKEN)
+            .post_init(post_init)
+            .build()
+        )
+        register_handlers(app)
+        APP_NAME = os.getenv("FLY_APP_NAME")
+        PORT = int(os.getenv("PORT", 8443))
+        webhook_url = f"https://{APP_NAME}.fly.dev/{BOT_TOKEN}"
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=BOT_TOKEN,
+            webhook_url=webhook_url,
+            allowed_updates=Update.ALL_TYPES
+        )
     else:
         run_polling()
