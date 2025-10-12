@@ -723,6 +723,10 @@ async def setup_bot() -> Application:
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_text))
 
+    # Инициализация приложения
+    await application.initialize()
+    logger.info("✅ Бот инициализирован")
+
     logger.info("✅ Обработчики добавлены")
     return application
 
