@@ -184,9 +184,16 @@ def make_callback_challenge(text: str) -> str:
 async def post_init(application: Application) -> None:
     """Инициализация бота при запуске."""
     logger.info("✅ Бот готов к запуску")
-    users_data = load_users()
-    application.bot_data["users"] = users_data
-    logger.info(f"👥 Загружено {len(users_data)} пользователей")
+    try:
+        users_data = load_users()
+        application.bot_data["users"] = users_data
+        logger.info(f"👥 Загружено {len(users_data)} пользователей")
+    except FileNotFoundError as e:
+        logger.error(f"❌ Ошибка: файл пользователей не найден: {str(e)}")
+        application.bot_data["users"] = {}  # Инициализируем пустым словарем
+    except Exception as e:
+        logger.error(f"❌ Ошибка при загрузке пользователей: {str(e)}")
+        application.bot_data["users"] = {}  # Инициализируем пустым словарем
 
     # Кэширование JSON-файлов
     for key, file in [
@@ -704,6 +711,24 @@ async def reload_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # Блок: Настройка FastAPI и бота
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+import json
+
+async def post_init(application: Application) -> None:
+    """Инициализация бота при запуске."""
+    logger.info("✅ Бот готов к запуску")
+    try:
+        users_data = load_users()
+        application.bot_data["users"] = users_data
+        logger.info(f"👥 Загружено {len(users_data)} пользователей")
+    except FileNotFoundError as e:
+        logger.error(f"❌ Ошибка: файл пользователей не найден: {str(e)}")
+        application.bot_data["users"] = {}
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Ошибка: некорректный формат JSON в файле пользователей: {str(e)}")
+        application.bot_data["users"] = {}
+    except Exception as e:
+        logger.error(f"❌ Ошибка при загрузке пользователей: {str(e)}", exc_info=True)
+        application.bot_data["users"] = {}
 
 async def setup_bot() -> Application:
     """Инициализация Telegram-бота."""
@@ -752,11 +777,20 @@ async def process_update(request: Request, token: str) -> Dict[str, bool]:
     if token != BOT_TOKEN.split(':')[0]:
         logger.error(f"❌ Неверный токен: {token}")
         return {"ok": False}
-    app = request.app.state.ptb_app
-    update_data = await request.json()
-    update = Update.de_json(update_data, app.bot)
-    await app.process_update(update)
-    return {"ok": True}
+    try:
+        app = request.app.state.ptb_app
+        update_data = await request.json()
+        logger.info(f"📥 Получено обновление: {update_data}")
+        update = Update.de_json(update_data, app.bot)
+        if update is None:
+            logger.error("❌ Не удалось десериализовать обновление")
+            return {"ok": False}
+        await app.process_update(update)
+        logger.info("✅ Обновление обработано")
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обработке обновления: {str(e)}", exc_info=True)
+        return {"ok": False}
 
 @app.get("/health")
 async def health_check() -> dict:
