@@ -1,0 +1,37 @@
+app = "fotinia-final"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DATA_DIR = "/data"
+  PYTHONUNBUFFERED = "1"
+
+[resources]
+  memory = "512"
+
+[processes]
+  app = "uvicorn fotinia_bot:app --host 0.0.0.0 --port 8080"
+
+[[services]]
+  internal_port = 8080
+  auto_start_machines = true
+  auto_stop_machines = false
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    interval = "10s"
+    timeout = "5s"
+    grace_period = "60s"
+    method = "GET"
+    path = "/health"
