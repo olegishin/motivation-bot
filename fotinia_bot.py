@@ -723,9 +723,10 @@ async def setup_bot() -> Application:
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_text))
 
-    # Инициализация приложения
+    # Инициализация и запуск приложения
     await application.initialize()
-    logger.info("✅ Бот инициализирован")
+    await application.start()
+    logger.info("✅ Бот инициализирован и запущен")
 
     logger.info("✅ Обработчики добавлены")
     return application
@@ -738,8 +739,10 @@ async def lifespan(app: FastAPI):
     logger.info("🤖 Бот готов")
     yield
     logger.info("🛑 Остановка...")
+    if app.state.ptb_app.running:
+        await app.state.ptb_app.stop()
     await app.state.ptb_app.shutdown()
-    await app.state.ptb_app.stop()
+    logger.info("✅ Бот остановлен")
 
 app = FastAPI(lifespan=lifespan)
 
