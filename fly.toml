@@ -10,7 +10,7 @@ primary_region = "fra"
   PYTHONUNBUFFERED = "1"
 
 [resources]
-  memory = "512"
+  memory = "512mb"
 
 [processes]
   app = "uvicorn fotinia_bot:app --host 0.0.0.0 --port 8080"
@@ -20,6 +20,7 @@ primary_region = "fra"
   auto_start_machines = true
   auto_stop_machines = false
   min_machines_running = 1
+  processes = ["app"]  # Явно указываем процесс "app"
 
   [[services.ports]]
     port = 80
