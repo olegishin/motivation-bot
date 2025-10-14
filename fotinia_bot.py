@@ -190,10 +190,13 @@ async def post_init(application: Application) -> None:
         logger.info(f"👥 Загружено {len(users_data)} пользователей")
     except FileNotFoundError as e:
         logger.error(f"❌ Ошибка: файл пользователей не найден: {str(e)}")
-        application.bot_data["users"] = {}  # Инициализируем пустым словарем
+        application.bot_data["users"] = {}
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Ошибка: некорректный формат JSON в файле пользователей: {str(e)}")
+        application.bot_data["users"] = {}
     except Exception as e:
-        logger.error(f"❌ Ошибка при загрузке пользователей: {str(e)}")
-        application.bot_data["users"] = {}  # Инициализируем пустым словарем
+        logger.error(f"❌ Ошибка при загрузке пользователей: {str(e)}", exc_info=True)
+        application.bot_data["users"] = {}
 
     # Кэширование JSON-файлов
     for key, file in [
@@ -230,7 +233,7 @@ async def post_init(application: Application) -> None:
         {"hour": 18, "minute": 0, "file": EVENING_FILE, "log": "🌙 Вечер", "key": "evening_phrases"},
     ]
     total_jobs = 0
-    for chat_id_str, user in users_data.items():
+    for chat_id_str, user in application.bot_data["users"].items():
         try:
             tz = pytz.timezone(user.get("timezone", "Europe/Kiev"))
         except Exception as e:
@@ -244,8 +247,7 @@ async def post_init(application: Application) -> None:
                 send_scheduled_message,
                 time=time(hour=job["hour"], minute=job["minute"], tzinfo=tz),
                 chat_id=int(chat_id_str),
-                data={"cache_key": job["key"], "log": job["log"]},
-                name=f"{job['log']}_{chat_id_str}"
+                data={"cache_key": job["key"], "log": job["log"]}
             )
             total_jobs += 1
     application.job_queue.run_daily(check_demo_reminders, time=time(hour=10, minute=0, tzinfo=pytz.UTC))
@@ -580,13 +582,13 @@ async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not is_admin:
         await update.message.reply_text("❌ Доступ только для админа.", reply_markup=keyboard)
         return
-    users = {k: v for k, v in load_users().items() if int(k) != SPECIAL_USER_ID}
+    users = {k: v for k, v in users_data.items() if int(k) != SPECIAL_USER_ID}
     total = len(users)
     active = sum(1 for u in users.values() if u.get("active", False))
     active_first = sum(1 for u in users.values() if u.get("active", False) and u.get("demo_count", 1) == 1)
     active_repeat = sum(1 for u in users.values() if u.get("active", False) and u.get("demo_count", 1) == 2)
     inactive = total - active
-    inactive_expired = sum(1 for k, u in users.items() if not u.get("active", False) and is_demo_expired(users, int(k)))
+    inactive_expired = sum(1 for k, u in users.items() if not u.get("active", False) and is_demo_expired(users_data, int(k)))
     inactive_blocked = inactive - inactive_expired
     await update.message.reply_text(
         f"👥 Всего: {total}\n"
@@ -604,75 +606,43 @@ async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработка инлайн-кнопок."""
     query = update.callback_query
+    if not query:
+        return
     await query.answer()
-    chat_id = query.message.chat_id
-    logger.info(f"📥 Callback от {chat_id}: {query.data}")
 
+    chat_id = query.message.chat_id
+    data = query.data
     users_data = context.bot_data.get("users", {})
-    is_admin = chat_id == ADMIN_CHAT_ID or users_data.get(str(chat_id), {}).get("is_admin", False)
+    user = users_data.get(str(chat_id), {})
+    is_admin = chat_id == ADMIN_CHAT_ID or user.get("is_admin", False)
     keyboard = OWNER_MARKUP if is_admin else MAIN_MARKUP
 
-    if query.data.startswith("accept:"):
-        callback_id = query.data.split(":", 1)[1]
-        current = users_data.get(str(chat_id), {}).get("current_challenge", "Челлендж не найден")
-        users_data[str(chat_id)]["challenge_accepted"] = True
+    if data.startswith("accept:"):
+        user["challenge_accepted"] = True
         save_users(users_data)
-        try:
-            await query.edit_message_text(f"💪 Челлендж принят:\n🔥 <b>{current}</b>", parse_mode="HTML")
-            await query.message.reply_text("📲 Меню доступно 👇", reply_markup=keyboard)
-        except BadRequest as e:
-            logger.error(f"❌ Ошибка принятия для {chat_id}: {e}")
-            await safe_send(context.application, ADMIN_CHAT_ID, f"⚠️ Ошибка: {e} для {chat_id}")
-            await query.message.reply_text("⚠️ Ошибка принятия.", reply_markup=keyboard)
-        return
-
-    elif query.data == "new":
-        user = users_data.get(str(chat_id), {})
-        if user.get("challenge_accepted") is True:
-            await query.edit_message_text("⏳ Челлендж уже выполнен.")
-            await query.message.reply_text("📲 Меню доступно 👇", reply_markup=keyboard)
-            return
-        challenges = context.bot_data.get("challenges", [])
-        if not challenges:
-            await query.edit_message_text("⚠️ Челленджи отсутствуют.")
-            await query.message.reply_text("📲 Меню доступно 👇", reply_markup=keyboard)
-            return
-        user_name = query.from_user.first_name or "друг"
-        new_challenge = safe_format(random.choice(challenges), name=user_name)
-        callback_id = make_callback_challenge(new_challenge)
-        users_data[str(chat_id)]["current_challenge"] = new_challenge
-        save_users(users_data)
-
-        inline_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Принять", callback_data=f"accept:{callback_id}"),
-                                               InlineKeyboardButton("🎲 Новый", callback_data="new")]])
-        try:
-            await query.edit_message_text(f"🔥 <b>{new_challenge}</b>", parse_mode="HTML", reply_markup=inline_keyboard)
-            await query.message.reply_text("📲 Меню доступно 👇", reply_markup=keyboard)
-        except BadRequest as e:
-            logger.error(f"❌ Ошибка нового челленджа для {chat_id}: {e}")
-            await safe_send(context.application, ADMIN_CHAT_ID, f"⚠️ Ошибка: {e} для {chat_id}")
-            await query.message.reply_text("⚠️ Ошибка отправки.", reply_markup=keyboard)
-        users_data[str(chat_id)]["last_challenge_date"] = datetime.now(get_user_timezone(users_data, chat_id)).date().isoformat()
-        users_data[str(chat_id)]["challenge_accepted"] = False
-        save_users(users_data)
+        await query.edit_message_text("✅ Челлендж принят! Удачи 💪", parse_mode="HTML")
+        await query.message.reply_text("📲 Меню доступно 👇", reply_markup=keyboard)
+    elif data == "new":
+        await handle_challenge(update, context)
 
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправка запланированных сообщений."""
     job = context.job
+    cache_key = job.data.get("cache_key")
+    log = job.data.get("log")
     chat_id = job.chat_id
-    cache_key = job.data["cache_key"]
-    log = job.data["log"]
     users_data = context.bot_data.get("users", {})
     if not users_data.get(str(chat_id), {}).get("active") or is_demo_expired(users_data, chat_id) or is_grace_period_expired(users_data, chat_id):
         logger.info(f"⏩ Пропуск {log} для {chat_id}")
         return
     phrases = context.bot_data.get(cache_key, [])
     if not phrases:
-        logger.warning(f"⚠️ Пустой список {cache_key} для {chat_id}")
+        logger.warning(f"⚠️ Нет фраз для {log}")
         return
+    phrase = random.choice(phrases)
     name = users_data.get(str(chat_id), {}).get("name", "друг")
-    if await safe_send(context.application, chat_id, safe_format(random.choice(phrases), name=name)):
-        logger.info(f"✅ {log} для {chat_id}")
+    if await safe_send(context.application, chat_id, safe_format(phrase, name=name)):
+        logger.info(f"{log} → {chat_id}: {phrase}")
     else:
         logger.warning(f"⚠️ Ошибка {log} для {chat_id}")
 
@@ -683,14 +653,15 @@ async def check_demo_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
     for chat_id_str, user in users_data.items():
         if int(chat_id_str) == SPECIAL_USER_ID:
             continue
-        if user.get("demo_expiration"):
-            try:
-                chat_id = int(chat_id_str)
-                demo_end = datetime.fromisoformat(user["demo_expiration"]).replace(tzinfo=pytz.UTC)
-                if timedelta(days=0) < demo_end - now <= timedelta(days=1):
-                    await safe_send(context.application, chat_id, "⏰ Демо заканчивается через 24 часа.")
-            except (ValueError, TypeError) as e:
-                logger.warning(f"⚠️ Ошибка проверки для {chat_id_str}: {e}")
+        demo_exp = user.get("demo_expiration")
+        if not demo_exp:
+            continue
+        try:
+            exp_time = datetime.fromisoformat(demo_exp).replace(tzinfo=pytz.UTC)
+            if 0 < (exp_time - now).total_seconds() <= 86400:
+                await safe_send(context.application, int(chat_id_str), "⏳ Твій демо-доступ закінчиться менше ніж за день. Встигни все!")
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка проверки demo_expiration для {chat_id_str}: {e}")
 
 async def reload_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Перезагрузка всех данных из файлов."""
@@ -709,52 +680,33 @@ async def reload_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("🔄 Данные перезагружены.")
 
 # Блок: Настройка FastAPI и бота
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
-import json
-
-async def post_init(application: Application) -> None:
-    """Инициализация бота при запуске."""
-    logger.info("✅ Бот готов к запуску")
-    try:
-        users_data = load_users()
-        application.bot_data["users"] = users_data
-        logger.info(f"👥 Загружено {len(users_data)} пользователей")
-    except FileNotFoundError as e:
-        logger.error(f"❌ Ошибка: файл пользователей не найден: {str(e)}")
-        application.bot_data["users"] = {}
-    except json.JSONDecodeError as e:
-        logger.error(f"❌ Ошибка: некорректный формат JSON в файле пользователей: {str(e)}")
-        application.bot_data["users"] = {}
-    except Exception as e:
-        logger.error(f"❌ Ошибка при загрузке пользователей: {str(e)}", exc_info=True)
-        application.bot_data["users"] = {}
-
 async def setup_bot() -> Application:
     """Инициализация Telegram-бота."""
     logger.info("🔧 Настройка Telegram-бота...")
-    application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
+    try:
+        application = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # Добавление обработчиков
-    application.add_handler(CommandHandler("start", handle_start))
-    application.add_handler(CommandHandler("pay", handle_pay))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BTN_MOTIVATE}$"), handle_motivation))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BTN_RHYTHM}$"), handle_rhythm))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BTN_CHALLENGE}$"), handle_challenge))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BTN_RULES}$"), handle_rules))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BTN_EXTEND_DEMO}$"), handle_extend_demo))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BTN_SHOW_USERS}$"), show_users_file))
-    application.add_handler(MessageHandler(filters.Regex(f"^{BTN_STATS}$"), user_stats))
-    application.add_handler(CallbackQueryHandler(handle_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_text))
+        # Добавление обработчиков
+        application.add_handler(CommandHandler("start", handle_start))
+        application.add_handler(CommandHandler("pay", handle_pay))
+        application.add_handler(MessageHandler(filters.Regex(f"^{BTN_MOTIVATE}$"), handle_motivation))
+        application.add_handler(MessageHandler(filters.Regex(f"^{BTN_RHYTHM}$"), handle_rhythm))
+        application.add_handler(MessageHandler(filters.Regex(f"^{BTN_CHALLENGE}$"), handle_challenge))
+        application.add_handler(MessageHandler(filters.Regex(f"^{BTN_RULES}$"), handle_rules))
+        application.add_handler(MessageHandler(filters.Regex(f"^{BTN_EXTEND_DEMO}$"), handle_extend_demo))
+        application.add_handler(MessageHandler(filters.Regex(f"^{BTN_SHOW_USERS}$"), show_users_file))
+        application.add_handler(MessageHandler(filters.Regex(f"^{BTN_STATS}$"), user_stats))
+        application.add_handler(CallbackQueryHandler(handle_callback))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown_text))
 
-    # Инициализация и запуск приложения
-    await application.initialize()
-    await application.start()
-    logger.info("✅ Бот инициализирован и запущен")
-
-    logger.info("✅ Обработчики добавлены")
-    return application
+        # Инициализация и запуск приложения
+        await application.initialize()
+        await application.start()
+        logger.info("✅ Бот инициализирован и запущен")
+        return application
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации бота: {str(e)}", exc_info=True)
+        raise
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
