@@ -1,38 +1,52 @@
+# Ім'я вашого додатку на Fly.io
 app = "fotinia-final"
 primary_region = "fra"
 
 [build]
+  # Вказує Fly.io використовувати Dockerfile для збірки
   dockerfile = "Dockerfile"
 
 [env]
-  PORT = "8080"
-  DATA_DIR = "/data"
+  # URL вашого додатку для вебхука
+  WEBHOOK_URL = "https://fotinia-final.fly.dev"
+  # Шлях до постійного сховища всередині контейнера
+  DATA_DIR = "/app/data"
+  # Налаштування для коректного виводу логів Python
   PYTHONUNBUFFERED = "1"
+  # Внутрішній порт, на якому працює Uvicorn
+  PORT = "8080"
 
-[resources]
-  memory = "512mb"
-
-[processes]
-  app = "uvicorn fotinia_bot:app --host 0.0.0.0 --port 8080"
-
-[[services]]
+[http_service]
   internal_port = 8080
-  auto_start_machines = true
+  force_https = true
+  # Запобігає зупинці машини при неактивності
   auto_stop_machines = false
+  auto_start_machines = false
+  # Гарантує, що завжди працює хоча б одна машина
   min_machines_running = 1
-  processes = ["app"]  # Явно указываем процесс "app"
+  processes = ["web"]
 
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-
-  [[services.http_checks]]
-    interval = "10s"
-    timeout = "5s"
-    grace_period = "60s"
+  # Налаштування перевірки "здоров'я" додатку
+  [[http_service.checks]]
+    type = "http"
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "5s"
     method = "GET"
-    path = "/health"
+    path = "/"
+    protocol = "http"
+
+# Спрощений запуск через Uvicorn, без Gunicorn
+[processes]
+  web = "uvicorn bot:app --host 0.0.0.0 --port 8080"
+
+# Конфігурація віртуальної машини
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+# Підключення постійного сховища (volume)
+[mounts]
+  source = "fotinia_data"
+  destination = "/app/data"
