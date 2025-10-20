@@ -1,23 +1,24 @@
-# ---- Базовий Python ----
+# Використовуємо легкий офіційний образ Python
 FROM python:3.11-slim
 
-# ---- Системна підготовка ----
+# Встановлюємо робочу директорію
 WORKDIR /app
-ENV PYTHONUNBUFFERED=1 \
-    DATA_DIR=/data \
-    PORT=8080
 
-# ---- Залежності ----
+# Налаштування для коректного виводу логів та часового поясу
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Europe/Kiev
+RUN apt-get update && apt-get install -y tzdata && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Копіюємо файл залежностей та встановлюємо їх
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# ---- Копіюємо код ----
-COPY . .
+# 🔥 КЛЮЧОВИЙ КРОК: Копіюємо контент з локальної папки 'data_initial'
+# всередину образу, щоб потім перенести його в постійне сховище.
+COPY data_initial/ /app/data_initial/
 
-# ---- Переносимо JSON-файли у /data ----
-RUN mkdir -p /data && cp -r *.json /data/ || echo "No JSON files found"
+# Копіюємо основний файл бота
+COPY fotinia_bot.py .
 
-# ---- Запуск через Uvicorn ----
-EXPOSE 8080
-CMD ["uvicorn", "fotinia_bot:app", "--host", "0.0.0.0", "--port", "8080"]
+# Команда для запуску веб-сервера з ботом
+CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
