@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v6.1 (ROBUST STARTUP)
+🚀 FOTINIA BOT v6.3 (DEBUG SYNC)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, статистика.
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 1 Job Scheduler, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Внедрены улучшения из ревью: добавлено детальное DEBUG-логирование
-                 и отказоустойчивая обработка ошибок в функциях запуска (lifespan),
-                 чтобы ловить любые проблемы при старте.
+🐞 ИСПРАВЛЕНИЕ: Добавлено детальное логирование в setup_initial_files для
+                 проверки содержимого исходных файлов перед копированием.
 """
 import os
 import json
@@ -33,14 +32,13 @@ from telegram.ext import (
 from telegram.error import Forbidden, BadRequest, RetryAfter
 
 # ----------------- КОНФИГУРАЦИЯ -----------------
-# ✅ ИСПРАВЛЕНО: Улучшенное логирование для отладки на сервере
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
 logger.addHandler(handler)
 logger.propagate = False
-logger.setLevel(logging.DEBUG)  # ✅ DEBUG для детальных логов
+logger.setLevel(logging.DEBUG)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
@@ -94,9 +92,13 @@ def load_json_data(filepath: Path, default_factory=list) -> Any:
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
-            if not content: return default_factory()
+            if not content or content.strip() in ('[]', '{}'):
+                logger.warning(f"Файл {filepath.name} пуст или содержит только '[]'/'{{}}'. Используется значение по умолчанию.")
+                return default_factory()
             return json.loads(content)
-    except (json.JSONDecodeError, IOError): return default_factory()
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error(f"Ошибка чтения или парсинга {filepath.name}: {e}. Используется значение по умолчанию.")
+        return default_factory()
 
 def save_users_sync(users_data: dict) -> None:
     try:
@@ -111,28 +113,90 @@ async def save_users(context: ContextTypes.DEFAULT_TYPE, users_data: dict) -> No
         await asyncio.get_running_loop().run_in_executor(None, save_users_sync, users_data)
 
 def setup_initial_files():
+    """
+    Умная синхронизация с отладкой: копирует файлы из data_initial в data, если:
+    1. Файла в data нет.
+    2. Файл в data_initial новее.
+    3. Файл в data существует, но пустой (< 10 байт).
+    Добавлено логирование содержимого исходных файлов.
+    """
     logger.info(f"Синхронизация файлов в persistent-директории '{DATA_DIR}'...")
     DATA_DIR.mkdir(exist_ok=True)
     
     source_data_dir = Path(__file__).parent / "data_initial"
     if not source_data_dir.exists():
         logger.warning(f"⚠️ Папка 'data_initial' не найдена. Невозможно скопировать исходные данные.")
+        # Создаем пустые файлы на всякий случай, чтобы бот не падал
+        for filename in FILE_MAPPING.values():
+             filepath = DATA_DIR / filename
+             if not filepath.exists():
+                  with open(filepath, "w", encoding="utf-8") as f: json.dump([], f)
+                  logger.warning(f"  -> ⚠️ Создан пустой файл '{filename}'.")
+        # users.json
+        if not USERS_FILE.exists():
+             with open(USERS_FILE, "w", encoding="utf-8") as f: json.dump({}, f)
+             logger.warning(f"  -> ⚠️ Файл '{USERS_FILE.name}' не найден, создан пустой.")
         return
 
+    copied_count = 0
     for filename in os.listdir(source_data_dir):
         source_path = source_data_dir / filename
         dest_path = DATA_DIR / filename
         
-        if not dest_path.exists() or source_path.stat().st_mtime > dest_path.stat().st_mtime:
-            shutil.copy2(source_path, dest_path)
-            logger.info(f"  -> ✅ Файл '{filename}' скопирован/обновлен в '{DATA_DIR}'.")
+        # Пропускаем, если это не файл
+        if not source_path.is_file():
+            continue
 
+        # ✅ Добавлено логирование содержимого исходного файла
+        try:
+            with open(source_path, "r", encoding="utf-8") as f:
+                source_content = f.read().strip()
+                logger.debug(f"Source {filename} content: {source_content[:50]}{'...' if len(source_content) > 50 else ''} (Size: {source_path.stat().st_size} bytes)")
+        except Exception as e:
+            logger.error(f"Не удалось прочитать исходный файл {source_path}: {e}")
+            continue # Пропускаем этот файл, если не можем прочитать
+
+        should_copy = False
+        reason = "нет"
+        if not dest_path.exists():
+            should_copy = True
+            reason = "не существует"
+        else:
+            try:
+                dest_size = dest_path.stat().st_size
+                source_mtime = source_path.stat().st_mtime
+                dest_mtime = dest_path.stat().st_mtime
+                logger.debug(f"Comparing {filename}: Dest size={dest_size}, Source mtime={source_mtime}, Dest mtime={dest_mtime}")
+
+                if dest_size < 10:
+                    should_copy = True
+                    reason = "пустой"
+                elif source_mtime > dest_mtime:
+                    should_copy = True
+                    reason = "новее"
+            except OSError as e:
+                logger.error(f"Не удалось получить информацию о файле {dest_path}: {e}")
+                should_copy = True
+                reason = "ошибка доступа"
+
+        if should_copy:
+            try:
+                shutil.copy2(source_path, dest_path)
+                logger.info(f"  -> ✅ Файл '{filename}' скопирован/обновлен (причина: {reason}).")
+                copied_count += 1
+            except Exception as e:
+                logger.error(f"  -> ❌ Не удалось скопировать '{filename}': {e}")
+
+    # Отдельно убедимся, что users.json существует
     if not USERS_FILE.exists():
         with open(USERS_FILE, "w", encoding="utf-8") as f:
             json.dump({}, f)
         logger.warning(f"  -> ⚠️ Файл '{USERS_FILE.name}' не найден, создан пустой.")
         
-    logger.info("✅ Синхронизация файлов данных завершена.")
+    logger.info(f"✅ Синхронизация завершена. Скопировано/обновлено файлов: {copied_count}.")
+
+
+# ... (остальной код остается без изменений) ...
 
 # ----------------- УТИЛИТЫ -----------------
 def strip_html_tags(text: str) -> str: return re.sub('<[^<]+?>', '', text)
@@ -414,12 +478,10 @@ async def lifespan(app: FastAPI):
     try:
         if not BOT_TOKEN:
             logger.critical("❌ BOT_TOKEN не задан! Бот не запустится.")
-            yield
-            return
+            yield; return
         if not ADMIN_CHAT_ID or ADMIN_CHAT_ID == 0:
             logger.critical("❌ ADMIN_CHAT_ID не задан! Бот не запустится.")
-            yield
-            return
+            yield; return
 
         setup_initial_files()
         await application.initialize()
@@ -433,12 +495,12 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("⚠️ WEBHOOK_URL не задан — используется polling (локально).")
         
-        await application.bot.send_message(ADMIN_CHAT_ID, "🤖 Бот успешно запущен (v6.1 Robust Startup)")
+        await application.bot.send_message(ADMIN_CHAT_ID, "🤖 Бот успешно запущен (v6.3 Debug Sync)")
         logger.info("✅ Lifespan STARTED - Бот готов!")
     
     except Exception as e:
         logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА в lifespan: {e}")
-        logger.error(f"Traceback: {sys.exc_info()}")
+        logger.exception("Полный traceback:") # Log full traceback
         raise
         
     yield
@@ -459,7 +521,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v6.1-robust-startup-ready"}
+async def health_check(): return {"status": "fotinia-v6.3-debug-sync-ready"}
 
 if __name__ == "__main__":
     try:
@@ -469,4 +531,5 @@ if __name__ == "__main__":
         application.run_polling()
     except Exception as e:
         logger.error(f"❌ Ошибка в polling: {e}")
+        logger.exception("Полный traceback:")
 
