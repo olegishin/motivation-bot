@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v5.9 (FINAL PRODUCTION - RU)
+🚀 FOTINIA BOT v6.1 (ROBUST STARTUP)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, статистика.
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 1 Job Scheduler, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Полностью готов к деплою с корректными конфигурационными файлами.
-                 Переведено на русский язык.
+🐞 ИСПРАВЛЕНИЕ: Внедрены улучшения из ревью: добавлено детальное DEBUG-логирование
+                 и отказоустойчивая обработка ошибок в функциях запуска (lifespan),
+                 чтобы ловить любые проблемы при старте.
 """
 import os
 import json
@@ -14,6 +15,7 @@ import asyncio
 import tempfile
 import shutil
 import re
+import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -31,8 +33,14 @@ from telegram.ext import (
 from telegram.error import Forbidden, BadRequest, RetryAfter
 
 # ----------------- КОНФИГУРАЦИЯ -----------------
+# ✅ ИСПРАВЛЕНО: Улучшенное логирование для отладки на сервере
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+logger.addHandler(handler)
+logger.propagate = False
+logger.setLevel(logging.DEBUG)  # ✅ DEBUG для детальных логов
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
@@ -44,7 +52,7 @@ logger.info("🤖 Bot starting...")
 logger.info(f"🔑 ADMIN_CHAT_ID configured as: {ADMIN_CHAT_ID}")
 
 # --- 📍 ПУТИ К ФАЙЛАМ ---
-DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
+DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
 
 # --- 📄 НАЗВАНИЯ ФАЙЛОВ ---
 USERS_FILE = DATA_DIR / "users.json"
@@ -145,12 +153,16 @@ async def safe_send(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str,
         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML', **kwargs)
         return True
     except Forbidden:
-        users_data = context.application.bot_data.get("users", {})
+        users_data = context.application.bot_data.setdefault("users", {})
         if str(chat_id) in users_data and users_data[str(chat_id)].get("active", True):
             users_data[str(chat_id)]["active"] = False
             await save_users(context, users_data)
         return False
-    except (BadRequest, RetryAfter) as e:
+    except RetryAfter as e:
+        logger.warning(f"Flood control: Wating {e.retry_after} seconds for chat {chat_id}")
+        await asyncio.sleep(e.retry_after)
+        return await safe_send(context, chat_id, text, **kwargs)
+    except BadRequest as e:
         logger.warning(f"Ошибка отправки сообщения в чат {chat_id}: {e}")
         return False
 
@@ -160,6 +172,10 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
     users_data = context.application.bot_data.get("users", {})
     schedules = [(8, "morning_phrases"), (12, "goals"), (15, "day_phrases"), (18, "evening_phrases")]
     tasks = []
+    
+    if now_utc.minute > 5:
+        return
+
     for hour, key in schedules:
         phrases = context.application.bot_data.get(key, [])
         if not phrases: continue
@@ -319,7 +335,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await send_new_challenge_message(update, context, is_edit=True)
     elif data == "admin_stats":
         if is_admin(query.from_user.id):
-            mock_update = type('MockUpdate', (), {'message': query.message, 'effective_chat': query.message.chat})
+            mock_update = type('MockUpdate', (), {'message': query.message})
+            mock_update.message.chat.id = query.from_user.id
             await user_stats(mock_update, context)
 
 # --- ⭐️ ГЛАВНЫЙ ДИСПЕТЧЕР СООБЩЕНИЙ ⭐️ ---
@@ -362,20 +379,29 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ----------------- 🚀 ЗАПУСК И НАСТРОЙКА -----------------
 async def setup_jobs_and_cache(app: Application):
-    app.bot_data["users"] = load_json_data(USERS_FILE, default_factory=dict)
-    logger.info(f"👥 Загружено {len(app.bot_data['users'])} пользователей")
-    for key, filename in FILE_MAPPING.items():
-        app.bot_data[key] = load_json_data(DATA_DIR / filename)
-        logger.info(f"  -> {filename}: {len(app.bot_data[key])} записей")
-    logger.info("📚 Кэш статических данных загружен")
-    
-    if app.job_queue:
-        for job in app.job_queue.jobs():
-            job.schedule_removal()
-
-    first_run = datetime.now(DEFAULT_TZ) + timedelta(seconds=15)
-    app.job_queue.run_repeating(centralized_broadcast_job, interval=timedelta(hours=1), first=first_run)
-    logger.info("✅ 1 централизованная задача планировщика настроена!")
+    try:
+        app.bot_data["users"] = load_json_data(USERS_FILE, default_factory=dict)
+        logger.info(f"👥 Загружено {len(app.bot_data['users'])} пользователей")
+        
+        for key, filename in FILE_MAPPING.items():
+            filepath = DATA_DIR / filename
+            data = load_json_data(filepath)
+            app.bot_data[key] = data
+            logger.info(f"  -> {filename}: {len(data)} записей")
+            
+        logger.info("📚 Кэш статических данных загружен")
+        
+        if app.job_queue:
+            for job in app.job_queue.jobs():
+                job.schedule_removal()
+                logger.debug(f"Удалена job: {job}")
+                
+        first_run = datetime.now(DEFAULT_TZ) + timedelta(seconds=15)
+        app.job_queue.run_repeating(centralized_broadcast_job, interval=timedelta(hours=1), first=first_run)
+        logger.info("✅ Планировщик настроен!")
+    except Exception as e:
+        logger.error(f"❌ Ошибка в setup_jobs_and_cache: {e}")
+        raise
 
 application = ApplicationBuilder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start_command))
@@ -385,27 +411,44 @@ application.add_handler(CallbackQueryHandler(handle_callback_query))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not BOT_TOKEN or not ADMIN_CHAT_ID:
-        logger.critical("❌ Не задан BOT_TOKEN или ADMIN_CHAT_ID — бот не запущен!")
-        yield; return
-    if not WEBHOOK_URL:
-        logger.warning("⚠️ WEBHOOK_URL не указан — Polling OK, но Webhook не активен для сервера.")
+    try:
+        if not BOT_TOKEN:
+            logger.critical("❌ BOT_TOKEN не задан! Бот не запустится.")
+            yield
+            return
+        if not ADMIN_CHAT_ID or ADMIN_CHAT_ID == 0:
+            logger.critical("❌ ADMIN_CHAT_ID не задан! Бот не запустится.")
+            yield
+            return
+
+        setup_initial_files()
+        await application.initialize()
+        await setup_jobs_and_cache(application)
+        await application.start()
         
-    setup_initial_files()
-    await application.initialize()
-    await setup_jobs_and_cache(application)
-    await application.start()
+        if WEBHOOK_URL:
+            webhook_url = f"{WEBHOOK_URL}/telegram/{BOT_TOKEN}"
+            await application.bot.set_webhook(url=webhook_url)
+            logger.info(f"✅ Webhook установлен.")
+        else:
+            logger.info("⚠️ WEBHOOK_URL не задан — используется polling (локально).")
+        
+        await application.bot.send_message(ADMIN_CHAT_ID, "🤖 Бот успешно запущен (v6.1 Robust Startup)")
+        logger.info("✅ Lifespan STARTED - Бот готов!")
     
-    if WEBHOOK_URL:
-        webhook_url = f"{WEBHOOK_URL}/telegram/{BOT_TOKEN}"
-        await application.bot.set_webhook(url=webhook_url)
-        logger.info(f"✅ Webhook установлен. Бот готов к работе.")
-    
-    await application.bot.send_message(ADMIN_CHAT_ID, "🤖 Бот успешно запущен (v5.9 Final Production)")
-    
+    except Exception as e:
+        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА в lifespan: {e}")
+        logger.error(f"Traceback: {sys.exc_info()}")
+        raise
+        
     yield
-    await application.stop()
-    await application.shutdown()
+    
+    try:
+        await application.stop()
+        await application.shutdown()
+        logger.info("✅ Lifespan STOPPED")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при остановке: {e}")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -416,11 +459,14 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v5.9-final-production-ready"}
+async def health_check(): return {"status": "fotinia-v6.1-robust-startup-ready"}
 
 if __name__ == "__main__":
-    logger.info("🚀 Запуск в режиме Polling (локальная разработка)")
-    setup_initial_files()
-    asyncio.run(setup_jobs_and_cache(application))
-    application.run_polling()
+    try:
+        logger.info("🚀 Запуск в режиме Polling")
+        setup_initial_files()
+        asyncio.run(setup_jobs_and_cache(application))
+        application.run_polling()
+    except Exception as e:
+        logger.error(f"❌ Ошибка в polling: {e}")
 

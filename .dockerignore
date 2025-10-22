@@ -1,27 +1,30 @@
-# flyctl launch added from venv\.gitignore
-# Created by venv; see https://docs.python.org/3/library/venv.html
+# Python virtual environment
+venv/
 
-venv/**/*
+# Fly.io configuration file (не нужно в образе)
 fly.toml
 
-# 🔒 Защита пользовательских данных
-users.json
+# IDE and editor configuration
+.vscode/
+.idea/
+*.swp
+*.bak
+*.tmp
 
-# 🧹 Кэш и временные файлы
+# Python cache and temporary files
 __pycache__/
 *.pyc
 *.pyo
 *.log
 
-# 📦 Установленные зависимости
+# Build artifacts
 *.egg-info/
 dist/
 build/
 
-# 📁 IDE и редакторы
-.vscode/
-.idea/
-*.swp
-*.env
-*.bak
-*.tmp
+# Local environment file
+.env
+token_id.env
+
+# Служебные файлы fly
+flyctl.exe
