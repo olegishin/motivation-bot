@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v6.3 (DEBUG SYNC)
+🚀 FOTINIA BOT v6.4 (FINAL FIXES)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, статистика.
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 1 Job Scheduler, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Добавлено детальное логирование в setup_initial_files для
-                 проверки содержимого исходных файлов перед копированием.
+🐞 ИСПРАВЛЕНИЕ: Исправлена отправка правил (теперь одно случайное).
+                 Убрана кнопка "Обновить" из админ-панели.
+                 Добавлено доп. логирование для диагностики челленджей.
 """
 import os
 import json
@@ -66,7 +67,9 @@ BTN_MOTIVATE, BTN_RHYTHM = "💪 Мотивируй меня", "🎵 Ритм д
 BTN_CHALLENGE, BTN_RULES = "⚔️ Челлендж дня", "📜 Правила Вселенной"
 BTN_PROFILE = "👤 Профиль"
 BTN_SHOW_USERS, BTN_STATS = "📂 Смотреть users.json", "📊 Статистика пользователей"
-BTN_RELOAD_DATA, BTN_EXTEND_DEMO = "🔄 Обновить", "🔄 Продлить демо"
+# ✅ ИСПРАВЛЕНО: Кнопка "Обновить" удалена
+BTN_RELOAD_DATA = "🔄 Обновить" # Оставляем переменную на всякий случай
+BTN_EXTEND_DEMO = "🔄 Продлить демо"
 
 USER_KEYBOARD_LAYOUT = [
     [BTN_MOTIVATE, BTN_RHYTHM],
@@ -74,10 +77,11 @@ USER_KEYBOARD_LAYOUT = [
     [BTN_PROFILE]
 ]
 
+# ✅ ИСПРАВЛЕНО: Кнопка "Обновить" убрана из раскладки
 ADMIN_KEYBOARD_LAYOUT = [
     [BTN_MOTIVATE, BTN_RHYTHM],
     [BTN_CHALLENGE, BTN_RULES],
-    [BTN_SHOW_USERS, BTN_STATS, BTN_RELOAD_DATA]
+    [BTN_SHOW_USERS, BTN_STATS] # Только просмотр и статистика
 ]
 
 MAIN_MARKUP = ReplyKeyboardMarkup(USER_KEYBOARD_LAYOUT, resize_keyboard=True)
@@ -88,10 +92,14 @@ USERS_FILE_LOCK = asyncio.Lock()
 
 # ----------------- РАБОТА С ДАННЫМИ -----------------
 def load_json_data(filepath: Path, default_factory=list) -> Any:
-    if not filepath.exists(): return default_factory()
+    if not filepath.exists():
+        logger.warning(f"Файл {filepath.name} не найден. Используется значение по умолчанию.")
+        return default_factory()
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
+            # ✅ Добавлено логирование содержимого для отладки
+            logger.debug(f"Reading {filepath.name}: Content starts with '{content[:100]}...' (Total size: {len(content)})")
             if not content or content.strip() in ('[]', '{}'):
                 logger.warning(f"Файл {filepath.name} пуст или содержит только '[]'/'{{}}'. Используется значение по умолчанию.")
                 return default_factory()
@@ -113,26 +121,18 @@ async def save_users(context: ContextTypes.DEFAULT_TYPE, users_data: dict) -> No
         await asyncio.get_running_loop().run_in_executor(None, save_users_sync, users_data)
 
 def setup_initial_files():
-    """
-    Умная синхронизация с отладкой: копирует файлы из data_initial в data, если:
-    1. Файла в data нет.
-    2. Файл в data_initial новее.
-    3. Файл в data существует, но пустой (< 10 байт).
-    Добавлено логирование содержимого исходных файлов.
-    """
     logger.info(f"Синхронизация файлов в persistent-директории '{DATA_DIR}'...")
     DATA_DIR.mkdir(exist_ok=True)
-    
+
     source_data_dir = Path(__file__).parent / "data_initial"
     if not source_data_dir.exists():
         logger.warning(f"⚠️ Папка 'data_initial' не найдена. Невозможно скопировать исходные данные.")
-        # Создаем пустые файлы на всякий случай, чтобы бот не падал
+        # Создаем пустые файлы, если их нет в /data
         for filename in FILE_MAPPING.values():
              filepath = DATA_DIR / filename
              if not filepath.exists():
                   with open(filepath, "w", encoding="utf-8") as f: json.dump([], f)
                   logger.warning(f"  -> ⚠️ Создан пустой файл '{filename}'.")
-        # users.json
         if not USERS_FILE.exists():
              with open(USERS_FILE, "w", encoding="utf-8") as f: json.dump({}, f)
              logger.warning(f"  -> ⚠️ Файл '{USERS_FILE.name}' не найден, создан пустой.")
@@ -142,19 +142,16 @@ def setup_initial_files():
     for filename in os.listdir(source_data_dir):
         source_path = source_data_dir / filename
         dest_path = DATA_DIR / filename
-        
-        # Пропускаем, если это не файл
-        if not source_path.is_file():
-            continue
 
-        # ✅ Добавлено логирование содержимого исходного файла
+        if not source_path.is_file(): continue
+
         try:
             with open(source_path, "r", encoding="utf-8") as f:
                 source_content = f.read().strip()
                 logger.debug(f"Source {filename} content: {source_content[:50]}{'...' if len(source_content) > 50 else ''} (Size: {source_path.stat().st_size} bytes)")
         except Exception as e:
             logger.error(f"Не удалось прочитать исходный файл {source_path}: {e}")
-            continue # Пропускаем этот файл, если не можем прочитать
+            continue
 
         should_copy = False
         reason = "нет"
@@ -168,10 +165,10 @@ def setup_initial_files():
                 dest_mtime = dest_path.stat().st_mtime
                 logger.debug(f"Comparing {filename}: Dest size={dest_size}, Source mtime={source_mtime}, Dest mtime={dest_mtime}")
 
-                if dest_size < 10:
+                if dest_size < 10 and filename != USERS_FILE.name : # Не перезаписываем пустой users.json, если он уже есть
                     should_copy = True
                     reason = "пустой"
-                elif source_mtime > dest_mtime:
+                elif source_mtime > dest_mtime and filename != USERS_FILE.name: # Не перезаписываем users.json по дате
                     should_copy = True
                     reason = "новее"
             except OSError as e:
@@ -187,16 +184,11 @@ def setup_initial_files():
             except Exception as e:
                 logger.error(f"  -> ❌ Не удалось скопировать '{filename}': {e}")
 
-    # Отдельно убедимся, что users.json существует
     if not USERS_FILE.exists():
-        with open(USERS_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
+        with open(USERS_FILE, "w", encoding="utf-8") as f: json.dump({}, f)
         logger.warning(f"  -> ⚠️ Файл '{USERS_FILE.name}' не найден, создан пустой.")
-        
+
     logger.info(f"✅ Синхронизация завершена. Скопировано/обновлено файлов: {copied_count}.")
-
-
-# ... (остальной код остается без изменений) ...
 
 # ----------------- УТИЛИТЫ -----------------
 def strip_html_tags(text: str) -> str: return re.sub('<[^<]+?>', '', text)
@@ -236,7 +228,7 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
     users_data = context.application.bot_data.get("users", {})
     schedules = [(8, "morning_phrases"), (12, "goals"), (15, "day_phrases"), (18, "evening_phrases")]
     tasks = []
-    
+
     if now_utc.minute > 5:
         return
 
@@ -262,7 +254,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_data = context.application.bot_data.get("users", {})
     user_name = update.effective_user.first_name or "друг"
     user_id_str = str(chat_id)
-    
+
     is_new_user = user_id_str not in users_data
 
     if is_new_user:
@@ -281,9 +273,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_demo_expired(user_entry):
             user_entry["demo_count"] = user_entry.get("demo_count", 1) + 1
             user_entry["demo_expiration"] = (datetime.now(ZoneInfo("UTC")) + timedelta(days=7)).isoformat()
-    
+
     await save_users(context, users_data)
-    
+
     markup = OWNER_MARKUP if is_admin(chat_id) else MAIN_MARKUP
     await safe_send(context, chat_id, f"🌟 Привет, {user_name}! Я бот Фотиния, твой личный помощник по саморазвитию.", reply_markup=markup)
 
@@ -304,48 +296,80 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_from_list(update: Update, context: ContextTypes.DEFAULT_TYPE, key: str, title: str):
     item_list = context.application.bot_data.get(key, [])
+    logger.debug(f"Attempting to send item from list '{key}'. Found {len(item_list)} items.")
     if not item_list:
         await safe_send(context, update.effective_chat.id, f"⚠️ Список для '{title}' пуст.")
         return
     user_name = context.application.bot_data["users"].get(str(update.effective_chat.id), {}).get("name", "друг")
-    item = random.choice(item_list).format(name=user_name)
-    await update.message.reply_text(f"<b>{title}</b>\n{item}", parse_mode="HTML")
+    try:
+        item = random.choice(item_list).format(name=user_name)
+        await update.message.reply_text(f"<b>{title}</b>\n{item}", parse_mode="HTML")
+    except IndexError:
+         await safe_send(context, update.effective_chat.id, f"⚠️ Произошла ошибка при выборе элемента из списка '{title}'. Список может быть пуст.")
+         logger.error(f"IndexError when choosing from list '{key}'. List content: {item_list}")
+    except KeyError as e:
+         await safe_send(context, update.effective_chat.id, f"⚠️ Ошибка форматирования текста для '{title}'. Отсутствует ключ: {e}")
+         logger.error(f"KeyError when formatting item from list '{key}'. Error: {e}. Item list: {item_list}")
+    except Exception as e:
+         await safe_send(context, update.effective_chat.id, f"⚠️ Произошла непредвиденная ошибка при отправке '{title}'.")
+         logger.exception(f"Unexpected error in send_from_list for key '{key}':")
+
 
 async def send_motivation(u: Update, c: ContextTypes.DEFAULT_TYPE): await send_from_list(u, c, "motivations", "💪")
 async def send_rhythm(u: Update, c: ContextTypes.DEFAULT_TYPE): await send_from_list(u, c, "ritm", "🎶 Ритм дня:")
 
+# ✅ ИСПРАВЛЕНО: Правила отправляются по одному, случайно
 async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rules_list = context.application.bot_data.get("rules", [])
-    if not rules_list: await safe_send(context, update.effective_chat.id, "⚠️ Список правил пуст."); return
-    rules = "\n".join(f"• {r}" for r in rules_list)
-    await update.message.reply_text(f"📜 <b>Правила Вселенной:</b>\n{rules}", parse_mode="HTML")
+    await send_from_list(update, context, "rules", "📜 Правила Вселенной:")
 
 async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.debug(f"Challenge command triggered by user {update.effective_chat.id}")
     user_data = context.application.bot_data["users"].get(str(update.effective_chat.id), {})
     user_tz = ZoneInfo(user_data.get("timezone", DEFAULT_TZ.key))
     today = datetime.now(user_tz).date().isoformat()
+
     if user_data.get("last_challenge_date") == today:
+        logger.debug(f"Challenge already issued today for user {update.effective_chat.id}")
         await update.message.reply_text("⏳ Вы уже получили челлендж на сегодня.")
         return
+
+    logger.debug(f"Sending new challenge for user {update.effective_chat.id}")
     await send_new_challenge_message(update, context)
 
 async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAULT_TYPE, is_edit=False):
     chat_id = update.effective_chat.id
     challenge_list = context.application.bot_data.get('challenges', [])
-    if not challenge_list: await safe_send(context, chat_id, "⚠️ Список челленджей пуст."); return
-    challenge = random.choice(challenge_list)
-    clean_challenge = strip_html_tags(challenge)[:40]
-    keyboard = [[InlineKeyboardButton("✅ Принять", callback_data=f"accept_challenge:{clean_challenge}"),
-                 InlineKeyboardButton("🎲 Новый", callback_data="new_challenge")]]
-    text = f"⚔️ <b>Челлендж дня:</b>\n{challenge}"
-    sender = update.callback_query.edit_message_text if is_edit else update.message.reply_text
-    await sender(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-    users_data = context.application.bot_data["users"]
-    user_tz = ZoneInfo(users_data.get(str(chat_id), {}).get("timezone", DEFAULT_TZ.key))
-    today = datetime.now(user_tz).date().isoformat()
-    users_data[str(chat_id)]["last_challenge_date"] = today
-    users_data[str(chat_id)]["challenge_accepted"] = False
-    await save_users(context, users_data)
+    logger.debug(f"Attempting to send challenge. Found {len(challenge_list)} challenges in bot_data.")
+
+    if not challenge_list:
+        logger.error(f"Challenge list is empty for user {chat_id}!")
+        await safe_send(context, chat_id, "⚠️ Список челленджей пуст.");
+        return
+
+    try:
+        challenge = random.choice(challenge_list)
+        logger.debug(f"Selected challenge: {challenge}")
+        clean_challenge = strip_html_tags(challenge)[:40]
+        keyboard = [[InlineKeyboardButton("✅ Принять", callback_data=f"accept_challenge:{clean_challenge}"),
+                     InlineKeyboardButton("🎲 Новый", callback_data="new_challenge")]]
+        text = f"⚔️ <b>Челлендж дня:</b>\n{challenge}"
+        sender = update.callback_query.edit_message_text if is_edit else update.message.reply_text
+        await sender(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+        users_data = context.application.bot_data["users"]
+        user_tz = ZoneInfo(users_data.get(str(chat_id), {}).get("timezone", DEFAULT_TZ.key))
+        today = datetime.now(user_tz).date().isoformat()
+        users_data[str(chat_id)]["last_challenge_date"] = today
+        users_data[str(chat_id)]["challenge_accepted"] = False
+        await save_users(context, users_data)
+        logger.debug(f"Challenge sent successfully to {chat_id}")
+    except IndexError:
+         logger.error(f"IndexError when choosing challenge! List content: {challenge_list}")
+         await safe_send(context, chat_id, "⚠️ Ошибка при выборе челленджа. Список может быть пуст.")
+    except Exception as e:
+         logger.exception(f"Unexpected error sending challenge to {chat_id}:")
+         await safe_send(context, chat_id, "⚠️ Произошла непредвиденная ошибка при отправке челленджа.")
+
 
 async def extend_demo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("💳 Для продления доступа, пожалуйста, свяжитесь с администратором.")
@@ -371,10 +395,12 @@ async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                   f"   - <i>Первый раз:</i> {active_first}\n   - <i>Повторно:</i> {active_repeat}\n\n"
                   f"❌ <b>Неактивных:</b> {inactive}\n"
                   f"   - <i>Закончилось демо:</i> {inactive_demo_expired}\n   - <i>Заблокировали:</i> {inactive_blocked}")
-    
+
     await update.message.reply_text(stats_text, parse_mode="HTML")
 
+# Функция reload_data остается, но кнопка удалена
 async def reload_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Admin {update.effective_chat.id} triggered reload_data.")
     await setup_jobs_and_cache(context.application)
     await update.message.reply_text("✅ Кэш и задачи планировщика обновлены!")
 
@@ -382,7 +408,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     chat_id_str = str(query.from_user.id)
-    
+
     logger.info(f"💬 Callback от {query.from_user.id}: {query.data}")
 
     users_data = context.application.bot_data["users"]
@@ -400,44 +426,51 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "admin_stats":
         if is_admin(query.from_user.id):
             mock_update = type('MockUpdate', (), {'message': query.message})
-            mock_update.message.chat.id = query.from_user.id
+            mock_update.message.chat.id = query.from_user.id # Важно для reply_text
             await user_stats(mock_update, context)
 
 # --- ⭐️ ГЛАВНЫЙ ДИСПЕТЧЕР СООБЩЕНИЙ ⭐️ ---
 async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
-    
+
     text, chat_id = update.message.text, update.effective_chat.id
-    
+    logger.debug(f"Received message from {chat_id}: '{text}'")
+
     user_data = context.application.bot_data.get("users", {}).get(str(chat_id))
     if not user_data:
+        logger.warning(f"User {chat_id} not found in bot_data. Asking to /start.")
         await update.message.reply_text("Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.")
         return
 
     is_user_admin = is_admin(chat_id)
     if is_demo_expired(user_data) and not is_user_admin:
+        logger.info(f"Demo expired for user {chat_id}.")
         if text == BTN_EXTEND_DEMO:
              await extend_demo(update, context)
         else:
              await safe_send(context, chat_id, text=f"👋 {user_data.get('name', 'друг')}!\n🔒 <b>Ваш демо-доступ закончился.</b>", reply_markup=EXPIRED_DEMO_MARKUP)
         return
-        
+
+    # ✅ ИСПРАВЛЕНО: Убран обработчик для удаленной кнопки BTN_RELOAD_DATA
     all_handlers = {
         BTN_MOTIVATE: send_motivation, BTN_RHYTHM: send_rhythm, BTN_RULES: send_rules,
         BTN_CHALLENGE: challenge_command, BTN_PROFILE: profile_command,
         BTN_EXTEND_DEMO: extend_demo,
-        BTN_STATS: user_stats, BTN_SHOW_USERS: show_users_file, BTN_RELOAD_DATA: reload_data
+        BTN_STATS: user_stats, BTN_SHOW_USERS: show_users_file
+        # BTN_RELOAD_DATA: reload_data, # Убрано
     }
 
     handler_to_call = all_handlers.get(text)
 
     if handler_to_call:
-        admin_only_buttons = {BTN_STATS, BTN_SHOW_USERS, BTN_RELOAD_DATA}
+        admin_only_buttons = {BTN_STATS, BTN_SHOW_USERS} # BTN_RELOAD_DATA убран
         if text in admin_only_buttons and not is_user_admin:
-            logger.warning(f"Пользователь {chat_id} попытался использовать админ-команду: {text}")
+            logger.warning(f"User {chat_id} attempted to use admin command: {text}")
         else:
+            logger.debug(f"Calling handler {handler_to_call.__name__} for user {chat_id}")
             await handler_to_call(update, context)
     else:
+        logger.warning(f"Unknown command received from user {chat_id}: {text}")
         markup = OWNER_MARKUP if is_user_admin else MAIN_MARKUP
         await update.message.reply_text("❓ Неизвестная команда. Пожалуйста, используйте кнопки.", reply_markup=markup)
 
@@ -446,25 +479,26 @@ async def setup_jobs_and_cache(app: Application):
     try:
         app.bot_data["users"] = load_json_data(USERS_FILE, default_factory=dict)
         logger.info(f"👥 Загружено {len(app.bot_data['users'])} пользователей")
-        
+
         for key, filename in FILE_MAPPING.items():
             filepath = DATA_DIR / filename
             data = load_json_data(filepath)
             app.bot_data[key] = data
-            logger.info(f"  -> {filename}: {len(data)} записей")
-            
+            logger.info(f"  -> {filename}: {len(data)} записей (Type: {type(data).__name__})") # Добавлено логирование типа
+
         logger.info("📚 Кэш статических данных загружен")
-        
+
         if app.job_queue:
             for job in app.job_queue.jobs():
                 job.schedule_removal()
                 logger.debug(f"Удалена job: {job}")
-                
+
         first_run = datetime.now(DEFAULT_TZ) + timedelta(seconds=15)
         app.job_queue.run_repeating(centralized_broadcast_job, interval=timedelta(hours=1), first=first_run)
         logger.info("✅ Планировщик настроен!")
     except Exception as e:
         logger.error(f"❌ Ошибка в setup_jobs_and_cache: {e}")
+        logger.exception("Полный traceback для setup_jobs_and_cache:")
         raise
 
 application = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -487,24 +521,24 @@ async def lifespan(app: FastAPI):
         await application.initialize()
         await setup_jobs_and_cache(application)
         await application.start()
-        
+
         if WEBHOOK_URL:
             webhook_url = f"{WEBHOOK_URL}/telegram/{BOT_TOKEN}"
             await application.bot.set_webhook(url=webhook_url)
             logger.info(f"✅ Webhook установлен.")
         else:
             logger.info("⚠️ WEBHOOK_URL не задан — используется polling (локально).")
-        
-        await application.bot.send_message(ADMIN_CHAT_ID, "🤖 Бот успешно запущен (v6.3 Debug Sync)")
+
+        await application.bot.send_message(ADMIN_CHAT_ID, "🤖 Бот успешно запущен (v6.4 Final Fixes)")
         logger.info("✅ Lifespan STARTED - Бот готов!")
-    
+
     except Exception as e:
         logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА в lifespan: {e}")
-        logger.exception("Полный traceback:") # Log full traceback
+        logger.exception("Полный traceback:")
         raise
-        
+
     yield
-    
+
     try:
         await application.stop()
         await application.shutdown()
@@ -521,7 +555,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v6.3-debug-sync-ready"}
+async def health_check(): return {"status": "fotinia-v6.4-final-fixes-ready"}
 
 if __name__ == "__main__":
     try:
