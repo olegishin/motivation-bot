@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v8.5 (CRITICAL FIX)
+🚀 FOTINIA BOT v8.6 (REAL P2P LINK)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 1 Job Scheduler, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Исправлена критическая NameError (отсутствовала функция
-                 handle_pay_api_test). Исправлена SyntaxError (repeated
-                 reply_markup) в send_new_challenge_message.
+🐞 ИСПРАВЛЕНИЕ: Добавлена реальная ссылка Monobank P2P (1 грн)
+                 в инструкции для обычных пользователей.
 """
 import os
 import json
@@ -80,7 +79,7 @@ translations = {
         "demo_expired_pay": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nЧтобы получить полный доступ ко всем функциям, нажмите кнопку 'Активировать подписку' ниже.",
         "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Ваш демо-доступ (тестовый) закончился.</b>\n\nНажмите кнопку ниже, чтобы симулировать API-оплату и получить Premium.",
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
-        "pay_instructions": "Для активации, пожалуйста, переведите **[Сумма] грн** на эту карту Monobank:\n\n`[Ваша ссылка send.monobank.ua/ссылка]`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
+        "pay_instructions": "Для активации, пожалуйста, переведите **1 грн** (тестовая сумма) на эту карту Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
         "pay_api_success_test": "✅ Симуляция API-оплаты прошла! Ваш 'Premium' доступ активирован. Нажмите /start.",
         "profile_title": "👤 <b>Ваш профиль:</b>",
         "profile_name": "📛 Имя",
@@ -96,6 +95,7 @@ translations = {
         "list_error_unexpected": "⚠️ Произошла непредвиденная ошибка при отправке '{title}'.",
         "list_error_data": "⚠️ Ошибка данных для '{title}'. Обратитесь к администратору.",
         "challenge_already_issued": "⏳ Вы уже получили челлендж на сегодня.",
+        "challenge_pending_acceptance": "🔥 У вас уже есть активный челлендж. Примите его или нажмите 'Новый' в сообщении выше.",
         "challenge_accepted_msg": "💪 <b>Челлендж принят:</b>\n\n<i>{challenge_text}</i>",
         "challenge_completed_msg": "✅ Отлично! Челлендж выполнен!",
         "challenge_completed_edit_err": "⚠️ Не удалось отредактировать сообщение о выполнении.",
@@ -112,7 +112,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v8.5 Critical Fix)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v8.6 Real P2P Link)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -144,7 +144,7 @@ translations = {
         "demo_expired_pay": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nЩоб отримати повний доступ до всіх функцій, натисніть кнопку 'Активувати підписку' нижче.",
         "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Ваш демо-доступ (тестовий) закінчився.</b>\n\nНатисніть кнопку нижче, щоб симулювати API-оплату й отримати Premium.",
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
-        "pay_instructions": "Для активації, будь ласка, перекажіть **[Сума] грн** на цю картку Monobank:\n\n`[Ваше посилання send.monobank.ua/посилання]`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
+        "pay_instructions": "Для активації, будь ласка, перекажіть **1 грн** (тестова сума) на цю картку Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
         "pay_api_success_test": "✅ Симуляція API-оплати пройшла! Ваш 'Premium' доступ активовано. Натисніть /start.",
         "profile_title": "👤 <b>Ваш профіль:</b>",
         "profile_name": "📛 Ім'я",
@@ -160,6 +160,7 @@ translations = {
         "list_error_unexpected": "⚠️ Сталася непередбачена помилка під час надсилання '{title}'.",
         "list_error_data": "⚠️ Помилка даних для '{title}'. Зверніться до адміністратора.",
         "challenge_already_issued": "⏳ Ви вже отримали челендж на сьогодні.",
+        "challenge_pending_acceptance": "🔥 У вас вже є активний челендж. Прийміть його або натисніть 'Новий' у повідомленні вище.",
         "challenge_accepted_msg": "💪 <b>Челендж прийнято:</b>\n\n<i>{challenge_text}</i>",
         "challenge_completed_msg": "✅ Чудово! Челендж виконано!",
         "challenge_completed_edit_err": "⚠️ Не вдалося відредагувати повідомлення про виконання.",
@@ -176,7 +177,7 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v8.5 Critical Fix)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v8.6 Real P2P Link)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
@@ -208,7 +209,7 @@ translations = {
         "demo_expired_pay": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nTo get full access to all features, please press 'Activate Subscription' below.",
         "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Your demo (test) access has expired.</b>\n\nPress the button below to simulate API payment and get Premium.",
         "pay_info": "💳 For full access, please contact the administrator.",
-        "pay_instructions": "To activate, please transfer **[Amount] UAH** to this Monobank card:\n\n`[Your send.monobank.ua/link]`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
+        "pay_instructions": "To activate, please transfer **1 UAH** (test amount) to this Monobank card:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
         "pay_api_success_test": "✅ API Simulation successful! Your 'Premium' access is activated. Press /start.",
         "profile_title": "👤 <b>Your Profile:</b>",
         "profile_name": "📛 Name",
@@ -224,6 +225,7 @@ translations = {
         "list_error_unexpected": "⚠️ An unexpected error occurred while sending '{title}'.",
         "list_error_data": "⚠️ Data error for '{title}'. Please contact the administrator.",
         "challenge_already_issued": "⏳ You have already received a challenge for today.",
+        "challenge_pending_acceptance": "🔥 You already have an active challenge. Accept it or press 'New' in the message above.",
         "challenge_accepted_msg": "💪 <b>Challenge accepted:</b>\n\n<i>{challenge_text}</i>",
         "challenge_completed_msg": "✅ Excellent! Challenge completed!",
         "challenge_completed_edit_err": "⚠️ Failed to edit the completion message.",
@@ -240,7 +242,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v8.5 Critical Fix)",
+        "admin_bot_started": "🤖 Bot successfully launched (v8.6 Real P2P Link)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -280,7 +282,7 @@ BTN_SHOW_USERS = "btn_show_users"
 BTN_STATS = "btn_stats"
 BTN_RELOAD_DATA = "btn_reload_data"
 BTN_PAY_REAL = "btn_pay_real"
-BTN_PAY_API_TEST = "btn_pay_api_test"
+BTN_PAY_API_TEST = "btn_pay_api_test" 
 
 def get_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
@@ -302,7 +304,7 @@ def get_tester_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
         [get_btn_text('motivate', lang), get_btn_text('rhythm', lang)],
         [get_btn_text('challenge', lang), get_btn_text('rules', lang)],
-        [get_btn_text('profile', lang), get_btn_text('pay_api_test', lang)]
+        [get_btn_text('profile', lang), get_btn_text('pay_api_test', lang)] # ✅ ИЗМЕНЕНО: Используем API_TEST
     ]
     return ReplyKeyboardMarkup(layout, resize_keyboard=True)
 
@@ -324,7 +326,6 @@ def get_reply_keyboard_for_user(chat_id: int, lang: str) -> ReplyKeyboardMarkup:
 USERS_FILE_LOCK = asyncio.Lock()
 
 # ----------------- РАБОТА С ДАННЫМИ -----------------
-# ... (load_json_data, load_all_challenges_into_cache, save_users_sync, save_users, setup_initial_files - БЕЗ ИЗМЕНЕНИЙ) ...
 def load_json_data(filepath: Path, default_factory=list) -> Any:
     if not filepath.exists():
         logger.warning(f"Файл {filepath.name} не найден. Используется значение по умолчанию.")
@@ -732,30 +733,41 @@ async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     user_data = context.application.bot_data["users"].get(str(chat_id), {})
     user_tz = ZoneInfo(user_data.get("timezone", DEFAULT_TZ.key))
     today = datetime.now(user_tz).date()
+    today_iso = today.isoformat()
 
     last_challenge_date_str = user_data.get("last_challenge_date")
+    
     if last_challenge_date_str:
         try:
             last_challenge_date = date.fromisoformat(last_challenge_date_str)
-            yesterday = today - timedelta(days=1)
             
-            if last_challenge_date <= yesterday:
-                 last_challenge_obj = next((ch for ch in reversed(user_data.get("challenges", [])) if date.fromisoformat(ch["accepted"].split("T")[0]) == last_challenge_date), None)
-                 if last_challenge_obj and not last_challenge_obj.get("completed"):
-                      logger.info(f"Streak reset for {chat_id}: Previous challenge on {last_challenge_date_str} not completed.")
-                      user_data["challenge_streak"] = 0
-                      await save_users(context, context.application.bot_data["users"])
+            if last_challenge_date == today:
+                challenge_accepted = user_data.get("challenge_accepted") # bool: True/False
+                
+                # ✅ ИСПРАВЛЕНО: Добавлена проверка challenge_accepted
+                if challenge_accepted is False:
+                    logger.debug(f"User {chat_id} has a pending (un-accepted) challenge.")
+                    await update.message.reply_text(get_text('challenge_pending_acceptance', lang=lang), reply_markup=markup)
+                    return
+                
+                elif challenge_accepted is True and not (chat_id in TESTER_USER_IDS):
+                    logger.debug(f"User {chat_id} already has an accepted challenge for today.")
+                    await update.message.reply_text(get_text('challenge_already_issued', lang=lang), reply_markup=markup)
+                    return
+                
+            elif last_challenge_date < today - timedelta(days=1):
+                last_challenge_obj = next((ch for ch in reversed(user_data.get("challenges", [])) if date.fromisoformat(ch["accepted"].split("T")[0]) == last_challenge_date), None)
+                if last_challenge_obj and not last_challenge_obj.get("completed"):
+                     logger.info(f"Streak reset for {chat_id}: Previous challenge on {last_challenge_date_str} not completed.")
+                     user_data["challenge_streak"] = 0
+                     await save_users(context, context.application.bot_data["users"])
 
         except (ValueError, TypeError) as e:
              logger.error(f"Error parsing last_challenge_date '{last_challenge_date_str}' for user {chat_id}: {e}")
 
-    if user_data.get("last_challenge_date") == today.isoformat() and chat_id not in TESTER_USER_IDS:
-        logger.debug(f"Challenge already issued today for user {chat_id}")
-        await update.message.reply_text(get_text('challenge_already_issued', lang=lang), reply_markup=markup)
-        return
-
     logger.debug(f"Sending new challenge for user {chat_id}")
     await send_new_challenge_message(update, context, is_edit=False, markup=markup)
+
 
 async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAULT_TYPE, is_edit=False, markup: ReplyKeyboardMarkup = None):
     chat_id = update.effective_chat.id
@@ -811,7 +823,7 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
         user_tz = ZoneInfo(users_data.get(str(chat_id), {}).get("timezone", DEFAULT_TZ.key))
         today_iso = datetime.now(user_tz).date().isoformat()
         users_data[str(chat_id)]["last_challenge_date"] = today_iso
-        users_data[str(chat_id)]["challenge_accepted"] = False
+        users_data[str(chat_id)]["challenge_accepted"] = False # ✅ Сбрасываем флаг при выдаче
         await save_users(context, users_data)
         logger.debug(f"Challenge sent/edited successfully for {chat_id}")
     except IndexError:
@@ -853,7 +865,7 @@ async def handle_pay_api_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_data["demo_expiration"] = None # Снимаем ограничение
     await save_users(context, users_data)
     
-    # Отправляем подтверждение и ОБНОВЛЯЕМ клавиатуру на обычную (тестерскую, но без кнопки оплаты)
+    # Отправляем подтверждение и ОБНОВЛЯЕМ клавиатуру на обычную (тестерскую)
     await safe_send(context, chat_id, get_text('pay_api_success_test', lang=lang), 
                     reply_markup=get_reply_keyboard_for_user(chat_id, lang))
 
@@ -1058,7 +1070,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "admin_stats":
         if is_admin(chat_id):
             markup = get_reply_keyboard_for_user(chat_id, lang)
-            mock_update = type('obj', (object,), {'message': query.message, 'effective_chat': query.message.chat})()
+            mock_update = type('obj', (object,), {
+                'message': query.message, 
+                'effective_chat': query.message.chat,
+            })()
+            mock_update.message.reply_text = query.message.reply_text # Важно для user_stats
             await user_stats(mock_update, context, markup=markup)
 
 # --- ⭐️ ГЛАВНЫЙ ДИСПЕТЧЕР СООБЩЕНИЙ ⭐️ ---
@@ -1095,7 +1111,7 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                  markup = get_payment_keyboard(lang=lang, is_test_user=False)
         
         if is_test_user and text == get_btn_text('pay_api_test', lang):
-            await handle_pay_api_test(update, context, markup=markup) # ✅ ИЗМЕНЕНО
+            await handle_pay_api_test(update, context, markup=markup)
             return
         elif not is_test_user and text == get_btn_text('pay_real', lang):
             await handle_pay_real(update, context, markup=markup)
@@ -1129,7 +1145,7 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         get_btn_text('stats', lang): user_stats,
         get_btn_text('show_users', lang): show_users_file,
         get_btn_text('reload_data', lang): reload_data, # Скрытая команда
-        get_btn_text('pay_api_test', lang): handle_pay_api_test, # ✅ ИЗМЕНЕНО
+        get_btn_text('pay_api_test', lang): handle_pay_api_test,
     }
 
     handler_to_call = all_handlers.get(text)
@@ -1254,7 +1270,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v8.4-api-payment-sim-ready"}
+async def health_check(): return {"status": "fotinia-v8.6-critical-fix-ready"}
 
 if __name__ == "__main__":
     try:
@@ -1265,4 +1281,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"❌ Ошибка в polling: {e}")
         logger.exception("Полный traceback:")
-
