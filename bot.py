@@ -279,7 +279,7 @@ BTN_SHOW_USERS = "btn_show_users"
 BTN_STATS = "btn_stats"
 BTN_RELOAD_DATA = "btn_reload_data"
 BTN_PAY_REAL = "btn_pay_real"
-BTN_PAY_TEST = "btn_pay_test"
+BTN_PAY_TEST = "btn_pay_test" # ✅ Новое имя кнопки
 
 def get_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
@@ -297,12 +297,27 @@ def get_admin_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     ]
     return ReplyKeyboardMarkup(layout, resize_keyboard=True)
 
-def get_payment_keyboard(lang: str = DEFAULT_LANG, is_test_user: bool = False) -> ReplyKeyboardMarkup:
-    if is_test_user:
-        button = get_btn_text('pay_test', lang)
-    else:
-        button = get_btn_text('pay_real', lang)
+# ✅ НОВАЯ КЛАВИАТУРА: для Тестеров
+def get_tester_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
+    layout = [
+        [get_btn_text('motivate', lang), get_btn_text('rhythm', lang)],
+        [get_btn_text('challenge', lang), get_btn_text('rules', lang)],
+        [get_btn_text('profile', lang), get_btn_text('pay_real_test', lang)] # Кнопка "Оплатить"
+    ]
+    return ReplyKeyboardMarkup(layout, resize_keyboard=True)
+
+def get_payment_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
+    # Эта клавиатура теперь только для ОБЫЧНЫХ юзеров
+    button = get_btn_text('pay_real', lang)
     return ReplyKeyboardMarkup([[button]], resize_keyboard=True)
+
+# ✅ НОВАЯ УТИЛИТА: Определяет, какую клавиатуру показать
+def get_reply_keyboard_for_user(chat_id: int, lang: str) -> ReplyKeyboardMarkup:
+    if is_admin(chat_id):
+        return get_admin_keyboard(lang)
+    if chat_id in TESTER_USER_IDS:
+        return get_tester_keyboard(lang)
+    return get_main_keyboard(lang)
 
 
 USERS_FILE_LOCK = asyncio.Lock()
@@ -529,7 +544,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_test_user = (chat_id in TESTER_USER_IDS)
     is_new_user = (user_entry is None)
-
+    
     if is_new_user or (is_test_user and is_demo_expired(user_entry or {})):
         logger.info(f"Поток нового пользователя для {chat_id} (Новый: {is_new_user}, Тестер: {is_test_user})")
         keyboard = [
@@ -543,32 +558,40 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_lang = user_entry.get("language", DEFAULT_LANG)
         user_name = user_entry.get("name", "друг")
         
-        if is_demo_expired(user_entry) and not is_test_user:
+        if is_demo_expired(user_entry) and not is_user_admin and not user_entry.get("is_paid"):
             logger.info(f"Демо истек для вернувшегося пользователя {chat_id}.")
-            try:
-                demo_exp_date = datetime.fromisoformat(user_entry.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
-                days_since_expired = (now_utc - demo_exp_date).days
-                
-                if days_since_expired >= DEMO_COOLDOWN_DAYS:
-                    logger.info(f"Продлеваем демо для {chat_id}. Дней с окончания: {days_since_expired}")
+            
+            if is_test_user:
+                logger.info(f"Тестовый пользователь {chat_id} с истекшим демо. Показываем кнопку оплаты.")
+                await safe_send(context, chat_id, 
+                                get_text('demo_expired_pay_test', lang=user_lang, name=user_name), 
+                                reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=True))
+            
+            else:
+                try:
+                    demo_exp_date = datetime.fromisoformat(user_entry.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
+                    days_since_expired = (now_utc - demo_exp_date).days
+                    
+                    if days_since_expired >= DEMO_COOLDOWN_DAYS:
+                        logger.info(f"Кулдаун для {chat_id} прошел. Показываем кнопку реальной оплаты.")
+                        await safe_send(context, chat_id, 
+                                        get_text('demo_expired_pay', lang=user_lang, name=user_name), 
+                                        reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=False))
+                    
+                    else:
+                        days_left = DEMO_COOLDOWN_DAYS - days_since_expired
+                        logger.info(f"Демо для {chat_id} еще на паузе. Осталось дней: {days_left}")
+                        await safe_send(context, chat_id, get_text('demo_expired_cooldown', lang=user_lang, name=user_name, days_left=days_left))
+
+                except (ValueError, TypeError):
+                    logger.error(f"Ошибка парсинга demo_expiration для {chat_id}. Показываем опцию оплаты.")
                     await safe_send(context, chat_id, 
                                     get_text('demo_expired_pay', lang=user_lang, name=user_name), 
                                     reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=False))
-                
-                else:
-                    days_left = DEMO_COOLDOWN_DAYS - days_since_expired
-                    logger.info(f"Демо для {chat_id} еще на паузе. Осталось дней: {days_left}")
-                    await safe_send(context, chat_id, get_text('demo_expired_cooldown', lang=user_lang, name=user_name, days_left=days_left))
-
-            except (ValueError, TypeError):
-                logger.error(f"Ошибка парсинга demo_expiration для {chat_id}. Показываем опцию оплаты.")
-                await safe_send(context, chat_id, 
-                                get_text('demo_expired_pay', lang=user_lang, name=user_name), 
-                                reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=False))
         
         else:
             logger.debug(f"Вернувшийся пользователь {chat_id} с активным демо/премиумом.")
-            markup = get_admin_keyboard(user_lang) if is_admin(chat_id) else get_main_keyboard(user_lang)
+            markup = get_reply_keyboard_for_user(chat_id, user_lang)
             await safe_send(context, chat_id, get_text('welcome_return', lang=user_lang, name=user_name), reply_markup=markup)
 
 
@@ -769,7 +792,7 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
         if is_edit:
             sent_message = await sender(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
         else:
-            # ✅ ИСПРАВЛЕНО: Убран дублирующийся аргумент reply_markup
+            # ✅ ИСПРАВЛЕНО: Убрана отправка ReplyKeyboard вместе с InlineKeyboard
             sent_message = await sender(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
         
         message_id_to_store = None
@@ -811,24 +834,13 @@ async def handle_pay_real(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
     await safe_send(context, chat_id, get_text('pay_instructions', lang=lang), 
                     disable_web_page_preview=True, reply_markup=markup)
 
-async def handle_pay_test(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
-    """Симулирует успешную оплату для тестового пользователя."""
+async def handle_pay_real_test(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
+    """Отправляет тестовому пользователю P2P-ссылку (1 грн)."""
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
-    users_data = context.application.bot_data.get("users", {})
-    user_data = users_data.get(str(chat_id))
-
-    if not user_data or chat_id not in TESTER_USER_IDS:
-        logger.warning(f"Non-tester {chat_id} tried to use test payment.")
-        return
-
-    logger.info(f"Simulating payment for test user {chat_id}.")
-    user_data["is_paid"] = True
-    user_data["demo_expiration"] = None # Снимаем ограничение
-    await save_users(context, users_data)
-    
-    await safe_send(context, chat_id, get_text('pay_success_test', lang=lang), reply_markup=markup)
-
+    logger.info(f"Sending REAL P2P (Monobank) test instructions to TESTER {chat_id}.")
+    await safe_send(context, chat_id, get_text('pay_instructions_real_test', lang=lang), 
+                    disable_web_page_preview=True, reply_markup=markup)
 
 # --- Админские функции ---
 async def show_users_file(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
@@ -897,7 +909,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         user_data["language"] = lang
         
-        if is_new_flow: # Логика регистрации/продления демо
+        if is_new_flow:
             user_name = query.from_user.first_name or "друг"
             user_data["id"] = chat_id
             user_data["name"] = user_name
@@ -930,11 +942,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         users_data[chat_id_str] = user_data
         await save_users(context, users_data)
         
-        markup = get_admin_keyboard(lang) if is_admin(chat_id) else get_main_keyboard(lang)
+        markup = get_reply_keyboard_for_user(chat_id, lang)
         await query.edit_message_text(get_text('lang_chosen', lang=lang), reply_markup=None)
         
-        welcome_text_key = 'welcome'
-        await safe_send(context, chat_id, get_text(welcome_text_key, lang=lang, name=user_data.get("name"), demo_days=demo_duration_days), reply_markup=markup)
+        if is_new_flow:
+            await safe_send(context, chat_id, get_text('welcome', lang=lang, name=user_data.get("name"), demo_days=demo_duration_days), reply_markup=markup)
+        else:
+             await context.bot.send_message(chat_id, get_text('lang_chosen', lang=lang), reply_markup=markup)
         return
 
     elif data == "accept_current_challenge":
@@ -1027,8 +1041,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await send_new_challenge_message(update, context, is_edit=True)
     elif data == "admin_stats":
         if is_admin(chat_id):
+            markup = get_reply_keyboard_for_user(chat_id, lang)
             mock_update = type('obj', (object,), {'message': query.message, 'effective_chat': query.message.chat})()
-            await user_stats(mock_update, context)
+            await user_stats(mock_update, context, markup=markup)
 
 # --- ⭐️ ГЛАВНЫЙ ДИСПЕТЧЕР СООБЩЕНИЙ ⭐️ ---
 async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1049,25 +1064,38 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if is_demo_expired(user_data) and not is_user_admin and not user_data.get("is_paid"):
         logger.info(f"Demo expired for user {chat_id}. Checking cooldown...")
-        markup = get_payment_keyboard(lang=lang, is_test_user=is_test_user)
         
+        markup = None
+        if is_test_user:
+            markup = get_payment_keyboard(lang=lang, is_test_user=True)
+        else:
+             try:
+                 now_utc = datetime.now(ZoneInfo("UTC"))
+                 demo_exp_date = datetime.fromisoformat(user_data.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
+                 days_since_expired = (now_utc - demo_exp_date).days
+                 if days_since_expired >= DEMO_COOLDOWN_DAYS:
+                      markup = get_payment_keyboard(lang=lang, is_test_user=False)
+             except Exception:
+                 markup = get_payment_keyboard(lang=lang, is_test_user=False)
+        
+        # --- Обработка нажатий кнопок в состоянии "демо истек" ---
+        if is_test_user and text == get_btn_text('pay_test', lang):
+            await handle_pay_test(update, context, markup=markup)
+            return
+        elif not is_test_user and text == get_btn_text('pay_real', lang):
+            await handle_pay_real(update, context, markup=markup)
+            return
+
+        # --- Отправка сообщения о состоянии, если кнопка не нажата ---
         try:
             now_utc = datetime.now(ZoneInfo("UTC"))
             demo_exp_date = datetime.fromisoformat(user_data.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
             days_since_expired = (now_utc - demo_exp_date).days
             
             if is_test_user:
-                 if text == get_btn_text('pay_test', lang):
-                      await handle_pay_test(update, context, markup=markup)
-                 else:
-                      await safe_send(context, chat_id, get_text('demo_expired_pay_test', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
-                 return
-            
-            if days_since_expired >= DEMO_COOLDOWN_DAYS:
-                if text == get_btn_text('pay_real', lang):
-                    await handle_pay_real(update, context, markup=markup)
-                else:
-                    await safe_send(context, chat_id, get_text('demo_expired_pay', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
+                 await safe_send(context, chat_id, get_text('demo_expired_pay_test', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
+            elif days_since_expired >= DEMO_COOLDOWN_DAYS:
+                await safe_send(context, chat_id, get_text('demo_expired_pay', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
             else:
                 days_left = DEMO_COOLDOWN_DAYS - days_since_expired
                 await safe_send(context, chat_id, get_text('demo_expired_cooldown', lang=lang, name=user_data.get("name", "друг"), days_left=days_left))
@@ -1076,7 +1104,8 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
              await safe_send(context, chat_id, get_text('demo_expired_pay', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
         return
     
-    markup = get_admin_keyboard(lang) if is_user_admin else get_main_keyboard(lang)
+    # --- Пользователь активен (демо/премиум) ---
+    markup = get_reply_keyboard_for_user(chat_id, lang)
     
     all_handlers = {
         get_btn_text('motivate', lang): send_motivation,
@@ -1087,6 +1116,7 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         get_btn_text('stats', lang): user_stats,
         get_btn_text('show_users', lang): show_users_file,
         get_btn_text('reload_data', lang): reload_data, # Скрытая команда
+        get_btn_text('pay_real_test', lang): handle_pay_real_test, # ✅ Новый обработчик
     }
 
     handler_to_call = all_handlers.get(text)
@@ -1135,7 +1165,6 @@ async def setup_jobs_and_cache(app: Application):
                 job.schedule_removal()
                 logger.debug(f"Удалена job: {job}")
 
-        # ✅ ИСПРАВЛЕНО: Запуск каждый час ровно в 00 минут
         now = datetime.now(DEFAULT_TZ)
         next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
         
@@ -1212,7 +1241,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v8.2-payment-simulation-ready"}
+async def health_check(): return {"status": "fotinia-v8.3-tester-p2p-payment-ready"}
 
 if __name__ == "__main__":
     try:
