@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v8.6 (REAL P2P LINK)
+🚀 FOTINIA BOT v8.7 (TESTER ROLE CHANGE)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 1 Job Scheduler, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Добавлена реальная ссылка Monobank P2P (1 грн)
-                 в инструкции для обычных пользователей.
+🐞 ИСПРАВЛЕНИЕ: Пользователь 290711961 убран из списка тестеров и
+                 теперь проходит стандартный P2P-сценарий оплаты.
 """
 import os
 import json
@@ -44,7 +44,8 @@ logger.setLevel(logging.DEBUG)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-TESTER_USER_IDS = {290711961, 6104624108} 
+# ✅ ИЗМЕНЕНО: 290711961 убран из тестеров, теперь он - обычный пользователь
+TESTER_USER_IDS = {6104624108} 
 DEFAULT_LANG = "ru" 
 DEFAULT_TZ = ZoneInfo("Europe/Kiev")
 DEMO_DAYS = 3
@@ -112,7 +113,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v8.6 Real P2P Link)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v8.7 Tester Role Change)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -177,7 +178,7 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v8.6 Real P2P Link)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v8.7 Tester Role Change)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
@@ -242,7 +243,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v8.6 Real P2P Link)",
+        "admin_bot_started": "🤖 Bot successfully launched (v8.7 Tester Role Change)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -304,7 +305,7 @@ def get_tester_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
         [get_btn_text('motivate', lang), get_btn_text('rhythm', lang)],
         [get_btn_text('challenge', lang), get_btn_text('rules', lang)],
-        [get_btn_text('profile', lang), get_btn_text('pay_api_test', lang)] # ✅ ИЗМЕНЕНО: Используем API_TEST
+        [get_btn_text('profile', lang), get_btn_text('pay_api_test', lang)]
     ]
     return ReplyKeyboardMarkup(layout, resize_keyboard=True)
 
@@ -744,7 +745,6 @@ async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             if last_challenge_date == today:
                 challenge_accepted = user_data.get("challenge_accepted") # bool: True/False
                 
-                # ✅ ИСПРАВЛЕНО: Добавлена проверка challenge_accepted
                 if challenge_accepted is False:
                     logger.debug(f"User {chat_id} has a pending (un-accepted) challenge.")
                     await update.message.reply_text(get_text('challenge_pending_acceptance', lang=lang), reply_markup=markup)
@@ -806,7 +806,6 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
         if is_edit:
             sent_message = await sender(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
         else:
-            # ✅ ИСПРАВЛЕНО: Убран дублирующийся аргумент reply_markup
             sent_message = await sender(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
         
         message_id_to_store = None
@@ -823,7 +822,7 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
         user_tz = ZoneInfo(users_data.get(str(chat_id), {}).get("timezone", DEFAULT_TZ.key))
         today_iso = datetime.now(user_tz).date().isoformat()
         users_data[str(chat_id)]["last_challenge_date"] = today_iso
-        users_data[str(chat_id)]["challenge_accepted"] = False # ✅ Сбрасываем флаг при выдаче
+        users_data[str(chat_id)]["challenge_accepted"] = False
         await save_users(context, users_data)
         logger.debug(f"Challenge sent/edited successfully for {chat_id}")
     except IndexError:
@@ -841,16 +840,13 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
 
 # --- Новые функции для оплаты ---
 async def handle_pay_real(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
-    """Отправляет обычному пользователю инструкции по P2P оплате."""
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
     logger.info(f"Sending P2P (Monobank) instructions to user {chat_id}.")
     await safe_send(context, chat_id, get_text('pay_instructions', lang=lang), 
                     disable_web_page_preview=True, reply_markup=markup)
 
-# ✅ ИСПРАВЛЕНО: Функция добавлена
 async def handle_pay_api_test(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
-    """Симулирует успешную API-оплату для тестового пользователя."""
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
     users_data = context.application.bot_data.get("users", {})
@@ -862,10 +858,9 @@ async def handle_pay_api_test(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     logger.info(f"Simulating API payment for test user {chat_id}.")
     user_data["is_paid"] = True
-    user_data["demo_expiration"] = None # Снимаем ограничение
+    user_data["demo_expiration"] = None
     await save_users(context, users_data)
     
-    # Отправляем подтверждение и ОБНОВЛЯЕМ клавиатуру на обычную (тестерскую)
     await safe_send(context, chat_id, get_text('pay_api_success_test', lang=lang), 
                     reply_markup=get_reply_keyboard_for_user(chat_id, lang))
 
@@ -1074,7 +1069,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 'message': query.message, 
                 'effective_chat': query.message.chat,
             })()
-            mock_update.message.reply_text = query.message.reply_text # Важно для user_stats
+            mock_update.message.reply_text = query.message.reply_text
             await user_stats(mock_update, context, markup=markup)
 
 # --- ⭐️ ГЛАВНЫЙ ДИСПЕТЧЕР СООБЩЕНИЙ ⭐️ ---
