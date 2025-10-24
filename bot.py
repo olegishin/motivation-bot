@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v8.4 (CRITICAL FIX)
+🚀 FOTINIA BOT v8.5 (CRITICAL FIX)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 1 Job Scheduler, современная работа со временем.
 🐞 ИСПРАВЛЕНИЕ: Исправлена критическая NameError (отсутствовала функция
-                 handle_pay_real_test). Исправлена SyntaxError (repeated
+                 handle_pay_api_test). Исправлена SyntaxError (repeated
                  reply_markup) в send_new_challenge_message.
 """
 import os
@@ -78,11 +78,10 @@ translations = {
         "welcome_return": "🌟 С возвращением, {name}! Рад снова тебя видеть. Твой демо-доступ активен. Используй кнопки ниже 👇",
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nВы сможете снова активировать пробный период через {days_left} дн. (Здесь будет информация об оплате)",
         "demo_expired_pay": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nЧтобы получить полный доступ ко всем функциям, нажмите кнопку 'Активировать подписку' ниже.",
-        "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Ваш демо-доступ (тестовый) закончился.</b>\n\nНажмите кнопку ниже, чтобы симулировать оплату и получить Premium.",
+        "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Ваш демо-доступ (тестовый) закончился.</b>\n\nНажмите кнопку ниже, чтобы симулировать API-оплату и получить Premium.",
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
         "pay_instructions": "Для активации, пожалуйста, переведите **[Сумма] грн** на эту карту Monobank:\n\n`[Ваша ссылка send.monobank.ua/ссылка]`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
-        "pay_instructions_real_test": "✅ <b>Тестовый платеж (1 грн)</b>\n\nДля проверки P2P-оплаты, пожалуйста, переведите **1 грн** на эту карту Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖНО:** Это ручной тест. После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ (то есть вы) увидит его и вручную активирует ваш доступ.",
-        "pay_success_test": "✅ Тестовая оплата прошла! Ваш 'Premium' доступ активирован. Нажмите /start, чтобы обновить клавиатуру.",
+        "pay_api_success_test": "✅ Симуляция API-оплаты прошла! Ваш 'Premium' доступ активирован. Нажмите /start.",
         "profile_title": "👤 <b>Ваш профиль:</b>",
         "profile_name": "📛 Имя",
         "profile_challenges_accepted": "⚔️ Принято челленджей",
@@ -113,7 +112,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v8.4 Critical Fix)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v8.5 Critical Fix)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -123,7 +122,7 @@ translations = {
         "btn_show_users": "📂 Смотреть users.json", "btn_stats": "📊 Статистика",
         "btn_reload_data": "🔄 Обновить",
         "btn_pay_real": "💳 Активировать подписку",
-        "btn_pay_real_test": "💳 Оплатить", 
+        "btn_pay_api_test": "💳 Оплатить (API Тест)",
         "btn_challenge_accept": "✅ Принять", "btn_challenge_new": "🎲 Новый",
         "btn_challenge_complete": "✅ Выполнено",
         "title_motivation": "💪", "title_rhythm": "🎶 Ритм дня:", "title_rules": "📜 Правила Вселенной",
@@ -143,10 +142,10 @@ translations = {
         "welcome_return": "🌟 З поверненням, {name}! Радий знову тебе бачити. Твій демо-доступ активний. Використовуй кнопки нижче 👇",
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи зможете знову активувати пробний період через {days_left} дн.",
         "demo_expired_pay": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nЩоб отримати повний доступ до всіх функцій, натисніть кнопку 'Активувати підписку' нижче.",
-        "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Ваш демо-доступ (тестовий) закінчився.</b>\n\nНатисніть кнопку нижче, щоб симулювати оплату й отримати Premium.",
+        "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Ваш демо-доступ (тестовий) закінчився.</b>\n\nНатисніть кнопку нижче, щоб симулювати API-оплату й отримати Premium.",
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
-        "pay_instructions_real_test": "✅ <b>Тестовий платіж (1 грн)</b>\n\nДля перевірки P2P-оплати, будь ласка, перекажіть **1 грн** на цю картку Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖЛИВО:** Це ручний тест. Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін (тобто ви) побачить його та вручну активує ваш доступ.",
-        "pay_success_test": "✅ Тестова оплата пройшла! Ваш 'Premium' доступ активовано. Натисніть /start, щоб оновити клавіатуру.",
+        "pay_instructions": "Для активації, будь ласка, перекажіть **[Сума] грн** на цю картку Monobank:\n\n`[Ваше посилання send.monobank.ua/посилання]`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
+        "pay_api_success_test": "✅ Симуляція API-оплати пройшла! Ваш 'Premium' доступ активовано. Натисніть /start.",
         "profile_title": "👤 <b>Ваш профіль:</b>",
         "profile_name": "📛 Ім'я",
         "profile_challenges_accepted": "⚔️ Прийнято челенджів",
@@ -177,7 +176,7 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v8.4 Critical Fix)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v8.5 Critical Fix)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
@@ -187,7 +186,7 @@ translations = {
         "btn_show_users": "📂 Дивитися users.json", "btn_stats": "📊 Статистика",
         "btn_reload_data": "🔄 Оновити",
         "btn_pay_real": "💳 Активувати підписку",
-        "btn_pay_real_test": "💳 Оплатити",
+        "btn_pay_api_test": "💳 Оплатити (API Тест)",
         "btn_challenge_accept": "✅ Прийняти", "btn_challenge_new": "🎲 Новий",
         "btn_challenge_complete": "✅ Виконано",
         "title_motivation": "💪", "title_rhythm": "🎶 Ритм дня:", "title_rules": "📜 Правила Всесвіту",
@@ -207,10 +206,10 @@ translations = {
         "welcome_return": "🌟 Welcome back, {name}! Glad to see you again. Your demo access is active. Use the buttons below 👇",
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can reactivate a trial period in {days_left} day(s).",
         "demo_expired_pay": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nTo get full access to all features, please press 'Activate Subscription' below.",
-        "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Your demo (test) access has expired.</b>\n\nPress the button below to simulate payment and get Premium.",
+        "demo_expired_pay_test": "👋 {name}!\n🔒 <b>Your demo (test) access has expired.</b>\n\nPress the button below to simulate API payment and get Premium.",
         "pay_info": "💳 For full access, please contact the administrator.",
-        "pay_instructions_real_test": "✅ <b>Test Payment (1 UAH)</b>\n\nTo test the P2P payment, please transfer **1 UAH** to this Monobank card:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**IMPORTANT:** This is a manual test. After payment, please send a screenshot of the receipt **to this chat**. The admin (you) will see it and manually activate your access.",
-        "pay_success_test": "✅ Test payment successful! Your 'Premium' access is activated. Press /start to update your keyboard.",
+        "pay_instructions": "To activate, please transfer **[Amount] UAH** to this Monobank card:\n\n`[Your send.monobank.ua/link]`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
+        "pay_api_success_test": "✅ API Simulation successful! Your 'Premium' access is activated. Press /start.",
         "profile_title": "👤 <b>Your Profile:</b>",
         "profile_name": "📛 Name",
         "profile_challenges_accepted": "⚔️ Challenges Accepted",
@@ -241,7 +240,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v8.4 Critical Fix)",
+        "admin_bot_started": "🤖 Bot successfully launched (v8.5 Critical Fix)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -251,7 +250,7 @@ translations = {
         "btn_show_users": "📂 View users.json", "btn_stats": "📊 Statistics",
         "btn_reload_data": "🔄 Reload",
         "btn_pay_real": "💳 Activate Subscription",
-        "btn_pay_real_test": "💳 Pay",
+        "btn_pay_api_test": "💳 Pay (API Test)",
         "btn_challenge_accept": "✅ Accept", "btn_challenge_new": "🎲 New",
         "btn_challenge_complete": "✅ Done",
         "title_motivation": "💪", "title_rhythm": "🎶 Rhythm of the Day:", "title_rules": "📜 Rules of the Universe",
@@ -281,7 +280,7 @@ BTN_SHOW_USERS = "btn_show_users"
 BTN_STATS = "btn_stats"
 BTN_RELOAD_DATA = "btn_reload_data"
 BTN_PAY_REAL = "btn_pay_real"
-BTN_PAY_TEST = "btn_pay_real_test"
+BTN_PAY_API_TEST = "btn_pay_api_test"
 
 def get_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
@@ -303,12 +302,15 @@ def get_tester_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
         [get_btn_text('motivate', lang), get_btn_text('rhythm', lang)],
         [get_btn_text('challenge', lang), get_btn_text('rules', lang)],
-        [get_btn_text('profile', lang), get_btn_text('pay_real_test', lang)]
+        [get_btn_text('profile', lang), get_btn_text('pay_api_test', lang)]
     ]
     return ReplyKeyboardMarkup(layout, resize_keyboard=True)
 
-def get_payment_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
-    button = get_btn_text('pay_real', lang)
+def get_payment_keyboard(lang: str = DEFAULT_LANG, is_test_user: bool = False) -> ReplyKeyboardMarkup:
+    if is_test_user:
+        button = get_btn_text('pay_api_test', lang)
+    else:
+        button = get_btn_text('pay_real', lang)
     return ReplyKeyboardMarkup([[button]], resize_keyboard=True)
 
 def get_reply_keyboard_for_user(chat_id: int, lang: str) -> ReplyKeyboardMarkup:
@@ -322,6 +324,7 @@ def get_reply_keyboard_for_user(chat_id: int, lang: str) -> ReplyKeyboardMarkup:
 USERS_FILE_LOCK = asyncio.Lock()
 
 # ----------------- РАБОТА С ДАННЫМИ -----------------
+# ... (load_json_data, load_all_challenges_into_cache, save_users_sync, save_users, setup_initial_files - БЕЗ ИЗМЕНЕНИЙ) ...
 def load_json_data(filepath: Path, default_factory=list) -> Any:
     if not filepath.exists():
         logger.warning(f"Файл {filepath.name} не найден. Используется значение по умолчанию.")
@@ -544,8 +547,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_test_user = (chat_id in TESTER_USER_IDS)
     is_new_user = (user_entry is None)
     
-    if is_new_user or (is_test_user and is_demo_expired(user_entry or {})):
-        logger.info(f"Поток нового пользователя для {chat_id} (Новый: {is_new_user}, Тестер: {is_test_user})")
+    if is_new_user:
+        logger.info(f"Поток нового пользователя для {chat_id}")
         keyboard = [
             [InlineKeyboardButton("Українська 🇺🇦", callback_data="set_lang_ua_new")],
             [InlineKeyboardButton("English 🇬🇧", callback_data="set_lang_en_new")],
@@ -557,11 +560,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_lang = user_entry.get("language", DEFAULT_LANG)
         user_name = user_entry.get("name", "друг")
         
-        if is_demo_expired(user_entry) and not is_user_admin and not user_entry.get("is_paid"):
+        if is_demo_expired(user_entry) and not user_entry.get("is_paid"):
             logger.info(f"Демо истек для вернувшегося пользователя {chat_id}.")
             
             if is_test_user:
-                logger.info(f"Тестовый пользователь {chat_id} с истекшим демо. Показываем кнопку оплаты.")
+                logger.info(f"Тестовый пользователь {chat_id} с истекшим демо. Показываем кнопку API-оплаты.")
                 await safe_send(context, chat_id, 
                                 get_text('demo_expired_pay_test', lang=user_lang, name=user_name), 
                                 reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=True))
@@ -833,13 +836,27 @@ async def handle_pay_real(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
     await safe_send(context, chat_id, get_text('pay_instructions', lang=lang), 
                     disable_web_page_preview=True, reply_markup=markup)
 
-async def handle_pay_real_test(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
-    """Отправляет тестовому пользователю P2P-ссылку (1 грн)."""
+# ✅ ИСПРАВЛЕНО: Функция добавлена
+async def handle_pay_api_test(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
+    """Симулирует успешную API-оплату для тестового пользователя."""
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
-    logger.info(f"Sending REAL P2P (Monobank) test instructions to TESTER {chat_id}.")
-    await safe_send(context, chat_id, get_text('pay_instructions_real_test', lang=lang), 
-                    disable_web_page_preview=True, reply_markup=markup)
+    users_data = context.application.bot_data.get("users", {})
+    user_data = users_data.get(str(chat_id))
+
+    if not user_data or chat_id not in TESTER_USER_IDS:
+        logger.warning(f"Non-tester {chat_id} tried to use test payment.")
+        return
+
+    logger.info(f"Simulating API payment for test user {chat_id}.")
+    user_data["is_paid"] = True
+    user_data["demo_expiration"] = None # Снимаем ограничение
+    await save_users(context, users_data)
+    
+    # Отправляем подтверждение и ОБНОВЛЯЕМ клавиатуру на обычную (тестерскую, но без кнопки оплаты)
+    await safe_send(context, chat_id, get_text('pay_api_success_test', lang=lang), 
+                    reply_markup=get_reply_keyboard_for_user(chat_id, lang))
+
 
 # --- Админские функции ---
 async def show_users_file(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
@@ -1077,8 +1094,8 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
              except Exception:
                  markup = get_payment_keyboard(lang=lang, is_test_user=False)
         
-        if is_test_user and text == get_btn_text('pay_test', lang):
-            await handle_pay_test(update, context, markup=markup)
+        if is_test_user and text == get_btn_text('pay_api_test', lang):
+            await handle_pay_api_test(update, context, markup=markup) # ✅ ИЗМЕНЕНО
             return
         elif not is_test_user and text == get_btn_text('pay_real', lang):
             await handle_pay_real(update, context, markup=markup)
@@ -1112,7 +1129,7 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         get_btn_text('stats', lang): user_stats,
         get_btn_text('show_users', lang): show_users_file,
         get_btn_text('reload_data', lang): reload_data, # Скрытая команда
-        get_btn_text('pay_real_test', lang): handle_pay_real_test,
+        get_btn_text('pay_api_test', lang): handle_pay_api_test, # ✅ ИЗМЕНЕНО
     }
 
     handler_to_call = all_handlers.get(text)
@@ -1237,7 +1254,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v8.3-tester-p2p-payment-ready"}
+async def health_check(): return {"status": "fotinia-v8.4-api-payment-sim-ready"}
 
 if __name__ == "__main__":
     try:
@@ -1248,3 +1265,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"❌ Ошибка в polling: {e}")
         logger.exception("Полный traceback:")
+
