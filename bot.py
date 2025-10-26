@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v9.0 (TESTER RESET FIX)
+🚀 FOTINIA BOT v9.5 (FINAL TESTER RESET & DEMO LOGIC)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 2 Job Schedulers, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Восстановлена логика для тестовых пользователей. Теперь
-                 каждое нажатие /start для них запускает полный
-                 цикл "нового пользователя" (выбор языка, демо 1 день, сброс Premium).
+🐞 ИСПРАВЛЕНИЕ: Новая демо-логика: 5+1+5 дней (обычные).
+                 Тестеры при каждом /start сбрасываются на 1-дневный демо.
+                 Исправлена ошибка "гонки" в "Правилах Вселенной".
+                 Добавлено сообщение о "1-м уровне" за 3 челленджа.
 """
 import os
 import json
@@ -45,10 +46,13 @@ logger.setLevel(logging.DEBUG)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+# ✅ ИЗМЕНЕНО: Оба ID снова в списке тестеров
 TESTER_USER_IDS = {290711961, 6104624108} 
 DEFAULT_LANG = "ru" 
 DEFAULT_TZ = ZoneInfo("Europe/Kiev")
-REGULAR_DEMO_DAYS = 3
+
+# ✅ ИЗМЕНЕНО: Демо-цикл 5+1
+REGULAR_DEMO_DAYS = 5
 REGULAR_COOLDOWN_DAYS = 1
 TESTER_DEMO_DAYS = 1
 TESTER_COOLDOWN_DAYS = 1
@@ -79,13 +83,14 @@ translations = {
         "lang_choose_first": COMMON_LANG_CHOOSE_FIRST,
         "welcome": "🌟 Привет, {name}! Я Фотиния, твой бот-помощник по саморазвитию.\n\nЯ буду присылать тебе сообщения 4 раза в день, чтобы помочь держать фокус. У тебя есть ознакомительный период ({demo_days} дня), чтобы попробовать все функции. Начнем! 👇",
         "welcome_return": "🌟 С возвращением, {name}! Рад снова тебя видеть. Твой {status_text} доступ активен. Используй кнопки ниже 👇",
+        "welcome_renewed_demo": "🌟 {name}, с возвращением! У Вас новый демо-период на {demo_days} дней. Все функции возобновлены. Достигнутые ранее уровни сброшены. В добрый путь! 👇",
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ истекает менее чем через {hours} час(а). Не забудьте активировать подписку, чтобы не терять прогресс!",
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nДо возобновления демо-периода осталось **{hours} ч. {minutes} мин.**\n\nИли вы можете активировать Premium-доступ прямо сейчас, нажав кнопку 'Оплатить'. 👇",
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nВы можете активировать **еще один** пробный период ({demo_days} дня) или получить постоянный Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваши пробные периоды закончились.</b>\n\nДля возобновления доступа, пожалуйста, активируйте Premium-подписку. 👇",
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
-        "pay_instructions": "Для активации, пожалуйста, переведите **1 грн** (тестовая сумма) на эту карту Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
-        "pay_api_success_test": "✅ Симуляция API-оплаты прошла! Ваш 'Premium' доступ активирован. Нажмите /start.",
+        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы приблизитесь к своей цели и закрепите новые привычки.\n\nДля активации, пожалуйста, переведите **1 грн** (тестовая сумма) на эту карту Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
+        "pay_api_success_test": "✅ {name}, добро пожаловать в Premium! (Тест API)\nЯ буду Вашей поддержкой в течение 30 дней. За это время Вы приблизитесь к своей цели и закрепите новые привычки. Нажмите /start.",
         "profile_title": "👤 <b>Ваш профиль:</b>",
         "profile_name": "📛 Имя",
         "profile_challenges_accepted": "⚔️ Принято челленджей",
@@ -109,7 +114,7 @@ translations = {
         "challenge_button_error": "⚠️ Произошла ошибка при формировании кнопок челленджа.",
         "challenge_unexpected_error": "⚠️ Произошла непредвиденная ошибка при отправке челленджа.",
         "challenge_accept_error": "⚠️ Произошла ошибка при принятии челленджа. Попробуйте запросить челлендж заново.",
-        "challenge_streak_3": "🔥🔥🔥 {name}, ты выполнил(а) 3 челленджа подряд! Невероятный результат! Продолжай в том же духе, ты способен(на) на многое!",
+        "challenge_streak_3_level_1": "🔥🔥🔥 {name}, ты молодец! Выполнено 3 челленджа подряд, и достигнут 1 уровень. Продолжай в том же темпе, и тебя ждет награда!",
         "unknown_command": "❓ Неизвестная команда. Пожалуйста, используйте кнопки.",
         "users_file_caption": "📂 users.json",
         "users_file_empty": "Файл users.json ещё не создан или пуст.",
@@ -117,7 +122,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v9.0 Tester Reset Fix)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v9.5 Final Demo Logic)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -128,7 +133,7 @@ translations = {
         "btn_reload_data": "🔄 Обновить",
         "btn_pay_real": "💳 Активировать подписку",
         "btn_pay_api_test": "💳 Оплатить (API Тест)",
-        "btn_new_demo": "🔄 Активировать демо",
+        "btn_new_demo": "🔄 Хочу демо",
         "btn_challenge_accept": "✅ Принять", "btn_challenge_new": "🎲 Новый",
         "btn_challenge_complete": "✅ Выполнено",
         "title_motivation": "💪", "title_rhythm": "🎶 Ритм дня:", "title_rules": "📜 Правила Вселенной",
@@ -146,13 +151,14 @@ translations = {
         "lang_choose_first": COMMON_LANG_CHOOSE_FIRST,
         "welcome": "🌟 Привіт, {name}! Я бот Фотінія, твій особистий помічник із саморозвитку.\n\nЯ буду надсилати тобі повідомлення 4 рази на день, щоб допомогти тримати фокус. У тебе є ознайомчий період ({demo_days} дні), щоб спробувати всі функції. Почнемо! 👇",
         "welcome_return": "🌟 З поверненням, {name}! Радий знову тебе бачити. Твій {status_text} доступ активний. Використовуй кнопки нижче 👇",
+        "welcome_renewed_demo": "🌟 {name}, з поверненням! У Вас новий демо-період на {demo_days} днів. Всі функції відновлено. Досягнуті раніше рівні скинуті. В добру путь! 👇",
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ закінчується менш ніж за {hours} год. Не забудьте активувати підписку, щоб не втрачати прогрес!",
-        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nМожливість активувати новий демо-період з'явиться через **{hours} год {minutes} хв.**\n\nАбо ви можете активувати Premium-доступ прямо зараз, натиснувши кнопку 'Оплатити'. 👇",
+        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nДо возобновления демо-периода осталось **{hours} год {minutes} хв.**\n\nАбо ви можете активувати Premium-доступ прямо зараз, натиснувши кнопку 'Оплатити'. 👇",
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати **ще один** пробний період ({demo_days} дні) або отримати постійний Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваші пробні періоди закінчилися.</b>\n\nДля відновлення доступу, будь ласка, активуйте Premium-підписку. 👇",
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
-        "pay_instructions": "Для активації, будь ласка, перекажіть **1 грн** (тестова сума) на цю картку Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
-        "pay_api_success_test": "✅ Симуляція API-оплати пройшла! Ваш 'Premium' доступ активовано. Натисніть /start.",
+        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви наблизитесь до своєї мети та закріпите нові звички.\n\nДля активації, будь ласка, перекажіть **1 грн** (тестова сума) на цю картку Monobank:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
+        "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви наблизитесь до своєї мети та закріпите нові звички. Натисніть /start.",
         "profile_title": "👤 <b>Ваш профіль:</b>",
         "profile_name": "📛 Ім'я",
         "profile_challenges_accepted": "⚔️ Прийнято челенджів",
@@ -176,7 +182,7 @@ translations = {
         "challenge_button_error": "⚠️ Сталася помилка під час формування кнопок челенджу.",
         "challenge_unexpected_error": "⚠️ Сталася непередбачена помилка під час надсилання челенджу.",
         "challenge_accept_error": "⚠️ Сталася помилка під час прийняття челенджу. Спробуйте запросити челендж знову.",
-        "challenge_streak_3": "🔥🔥🔥 {name}, ти виконав(ла) 3 челенджі поспіль! Неймовірний результат! Продовжуй так само, ти здатен(на) на багато що!",
+        "challenge_streak_3_level_1": "🔥🔥🔥 {name}, ти молодець! Виконано 3 челенджі поспіль, і досягнуто 1 рівень. Продовжуй в тому ж темпі, і на тебе чекає нагорода!",
         "unknown_command": "❓ Невідома команда. Будь ласка, використовуйте кнопки.",
         "users_file_caption": "📂 users.json",
         "users_file_empty": "Файл users.json ще не створений або порожній.",
@@ -184,7 +190,7 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v9.0 Tester Reset Fix)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v9.5 Final Demo Logic)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
@@ -195,7 +201,7 @@ translations = {
         "btn_reload_data": "🔄 Оновити",
         "btn_pay_real": "💳 Активувати підписку",
         "btn_pay_api_test": "💳 Оплатити (API Тест)",
-        "btn_new_demo": "🔄 Активувати демо",
+        "btn_new_demo": "🔄 Хочу демо",
         "btn_challenge_accept": "✅ Прийняти", "btn_challenge_new": "🎲 Новий",
         "btn_challenge_complete": "✅ Виконано",
         "title_motivation": "💪", "title_rhythm": "🎶 Ритм дня:", "title_rules": "📜 Правила Всесвіту",
@@ -213,13 +219,14 @@ translations = {
         "lang_choose_first": COMMON_LANG_CHOOSE_FIRST,
         "welcome": "🌟 Hello, {name}! I am Fotinia Bot, your personal self-development assistant.\n\nI will send you messages 4 times a day to help you stay focused. You have a trial period ({demo_days} days) to try all features. Let's start! 👇",
         "welcome_return": "🌟 Welcome back, {name}! Glad to see you again. Your {status_text} access is active. Use the buttons below 👇",
+        "welcome_renewed_demo": "🌟 {name}, welcome back! You have a new demo period for {demo_days} days. All functions are restored. Previously achieved levels are reset. Good luck! 👇",
         "demo_expiring_soon_h": "🔒 {name}, your demo access expires in less than {hours} hour(s). Don't forget to activate your subscription to keep your progress!",
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can reactivate a new demo period in **{hours}h {minutes}m**.\n\nOr you can activate Premium access right now by pressing 'Pay'. 👇",
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can activate **one more** trial period ({demo_days} days) or get permanent Premium access.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Your trial periods have ended.</b>\n\nTo resume access, please activate your Premium subscription. 👇",
         "pay_info": "💳 For full access, please contact the administrator.",
-        "pay_instructions": "To activate, please transfer **1 UAH** (test amount) to this Monobank card:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
-        "pay_api_success_test": "✅ API Simulation successful! Your 'Premium' access is activated. Press /start.",
+        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will get closer to your goal and build new habits.\n\nTo activate, please transfer **1 UAH** (test amount) to this Monobank card:\n\n`https://send.monobank.ua/2f4hvev7yR`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
+        "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will get closer to your goal and build new habits. Press /start.",
         "profile_title": "👤 <b>Your Profile:</b>",
         "profile_name": "📛 Name",
         "profile_challenges_accepted": "⚔️ Challenges Accepted",
@@ -243,7 +250,7 @@ translations = {
         "challenge_button_error": "⚠️ An error occurred while generating challenge buttons.",
         "challenge_unexpected_error": "⚠️ An unexpected error occurred while sending the challenge.",
         "challenge_accept_error": "⚠️ An error occurred while accepting the challenge. Please request a new challenge.",
-        "challenge_streak_3": "🔥🔥🔥 {name}, you have completed 3 challenges in a row! Incredible result! Keep it up, you are capable of great things!",
+        "challenge_streak_3_level_1": "🔥🔥🔥 {name}, you're amazing! 3 challenges completed in a row, and Level 1 achieved. Keep up the pace, and a reward awaits you!",
         "unknown_command": "❓ Unknown command. Please use the buttons.",
         "users_file_caption": "📂 users.json",
         "users_file_empty": "The users.json file has not been created or is empty.",
@@ -251,7 +258,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v9.0 Tester Reset Fix)",
+        "admin_bot_started": "🤖 Bot successfully launched (v9.5 Final Demo Logic)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -262,7 +269,7 @@ translations = {
         "btn_reload_data": "🔄 Reload",
         "btn_pay_real": "💳 Activate Subscription",
         "btn_pay_api_test": "💳 Pay (API Test)",
-        "btn_new_demo": "🔄 Activate Demo",
+        "btn_new_demo": "🔄 Want Demo",
         "btn_challenge_accept": "✅ Accept", "btn_challenge_new": "🎲 New",
         "btn_challenge_complete": "✅ Done",
         "title_motivation": "💪", "title_rhythm": "🎶 Rhythm of the Day:", "title_rules": "📜 Rules of the Universe",
@@ -323,12 +330,12 @@ def get_payment_keyboard(lang: str = DEFAULT_LANG, is_test_user: bool = False, s
         
     return ReplyKeyboardMarkup([buttons], resize_keyboard=True)
 
+# ✅ ИЗМЕНЕНО: Эта функция теперь определяет *все* клавиатуры
 def get_reply_keyboard_for_user(chat_id: int, lang: str, user_data: Dict[str, Any]) -> ReplyKeyboardMarkup:
     """Определяет, какую клавиатуру показать пользователю."""
     if is_admin(chat_id):
         return get_admin_keyboard(lang)
     
-    # Если оплачено, всегда показываем главную клавиатуру
     if user_data.get("is_paid"):
         return get_main_keyboard(lang)
     
@@ -344,11 +351,15 @@ def get_reply_keyboard_for_user(chat_id: int, lang: str, user_data: Dict[str, An
             next_demo_dt = exp_dt + timedelta(days=cooldown_days)
             
             if now_utc >= next_demo_dt:
+                # Кулдаун прошел
                 show_demo_button = (demo_count < MAX_DEMO_CYCLES)
                 return get_payment_keyboard(lang, is_test_user, show_new_demo=show_demo_button)
             else:
-                return get_payment_keyboard(lang, is_test_user, show_new_demo=False)
+                # Еще в кулдауне
+                show_demo_button = (demo_count < MAX_DEMO_CYCLES)
+                return get_payment_keyboard(lang, is_test_user, show_new_demo=show_demo_button)
         except Exception:
+             # Ошибка парсинга даты
              return get_payment_keyboard(lang, is_test_user, show_new_demo=(demo_count < MAX_DEMO_CYCLES))
     
     # Демо активно
@@ -551,11 +562,16 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
         phrases_by_lang = data if isinstance(data, dict) else {DEFAULT_LANG: data if isinstance(data, list) else []}
 
         for chat_id_str, user_data in users_data.items():
-            # ✅ ИСПРАВЛЕНО: Рассылки уходят только активным (не заблокировал) И (платным ИЛИ демо не истек)
-            if not user_data.get("active") or (not user_data.get("is_paid") and is_demo_expired(user_data)):
-                 if is_demo_expired(user_data):
-                      logger.debug(f"Skipping broadcast for {chat_id_str}, demo expired.")
-                 continue
+            chat_id = int(chat_id_str)
+            is_test_user = chat_id in TESTER_USER_IDS
+            is_user_admin = is_admin(chat_id)
+            
+            if not user_data.get("active"):
+                continue
+                
+            if is_demo_expired(user_data) and not user_data.get("is_paid") and not is_user_admin and not is_test_user:
+                logger.debug(f"Skipping broadcast for {chat_id_str}, demo expired.")
+                continue
             
             try:
                 user_tz = ZoneInfo(user_data.get("timezone", DEFAULT_TZ.key))
@@ -564,14 +580,12 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
                 lang_specific_phrases = phrases_by_lang.get(user_lang, phrases_by_lang.get(DEFAULT_LANG, []))
                 
                 if not lang_specific_phrases:
-                     if hour == 8: # Логируем только 1 раз в день, чтобы не спамить
-                        logger.warning(f"Нет фраз для языка '{user_lang}' в рассылке '{key}'.")
                      continue
 
                 if now_utc.astimezone(user_tz).hour == hour:
                     logger.debug(f"Sending '{key}' to user {chat_id_str} at their local {hour}:00")
                     phrase = random.choice(lang_specific_phrases).format(name=user_data.get("name", "друг"))
-                    tasks.append(safe_send(context, int(chat_id_str), phrase))
+                    tasks.append(safe_send(context, chat_id, phrase))
             except Exception as e: logger.error(f"Ошибка в планировщике (broadcast) для {chat_id_str}: {e}")
     
     if tasks:
@@ -579,7 +593,6 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
         if (sent_count := sum(1 for res in results if res)) > 0:
             logger.info(f"📢 Рассылка (broadcast) завершена. Отправлено {sent_count} сообщений.")
 
-# ✅ НОВЫЙ ПЛАНИРОВЩИК: Уведомления об окончании демо
 async def check_demo_expiry_job(context: ContextTypes.DEFAULT_TYPE):
     """Раз в час проверяет, не истекает ли у кого-то демо, и шлет уведомление."""
     logger.debug("Running check_demo_expiry_job...")
@@ -589,7 +602,6 @@ async def check_demo_expiry_job(context: ContextTypes.DEFAULT_TYPE):
     
     for chat_id_str, user_data in users_data.items():
         chat_id = int(chat_id_str)
-        # Пропускаем, если уже оплатил, неактивен, или уже отправляли
         if user_data.get("is_paid") or not user_data.get("active") or user_data.get("sent_expiry_warning"):
             continue
             
@@ -631,7 +643,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_test_user = (chat_id in TESTER_USER_IDS)
     is_new_user = (user_entry is None)
     
-    # ✅ ИСПРАВЛЕНО: Тестеры теперь всегда проходят поток "нового пользователя"
     if is_new_user or is_test_user:
         logger.info(f"Поток нового пользователя для {chat_id} (Новый: {is_new_user}, Тестер: {is_test_user})")
         keyboard = [
@@ -650,33 +661,29 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Демо истек для вернувшегося пользователя {chat_id}.")
             
             demo_count = user_entry.get("demo_count", 1)
-            cooldown_days = TESTER_COOLDOWN_DAYS if is_test_user else REGULAR_COOLDOWN_DAYS
-            demo_days = TESTER_DEMO_DAYS if is_test_user else REGULAR_DEMO_DAYS
+            cooldown_days = REGULAR_COOLDOWN_DAYS
+            demo_days = REGULAR_DEMO_DAYS
             
             try:
                 demo_exp_date = datetime.fromisoformat(user_entry.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
                 next_demo_dt = demo_exp_date + timedelta(days=cooldown_days)
                 
                 if now_utc < next_demo_dt:
-                    # ЕЩЕ В КУЛДАУНЕ
                     time_left = next_demo_dt - now_utc
                     hours_left, remainder = divmod(int(time_left.total_seconds()), 3600)
                     minutes_left, _ = divmod(remainder, 60)
                     logger.info(f"Демо для {chat_id} еще на паузе. Осталось: {hours_left}ч {minutes_left}м")
                     await safe_send(context, chat_id, 
                                     get_text('demo_expired_cooldown', lang=user_lang, name=user_name, hours=hours_left, minutes=minutes_left),
-                                    reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=False))
+                                    reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=True))
                 
                 else:
-                    # КУЛДАУН ПРОШЕЛ
                     if demo_count < MAX_DEMO_CYCLES:
-                        # Показываем выбор: "Оплатить" или "Новое демо"
                         logger.info(f"Кулдаун для {chat_id} прошел. Предлагаем 2-е демо (счетчик: {demo_count}).")
                         await safe_send(context, chat_id, 
                                         get_text('demo_expired_choice', lang=user_lang, name=user_name, demo_days=demo_days),
                                         reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=True))
                     else:
-                        # Демо-циклы закончились
                         logger.info(f"Демо-циклы ({demo_count}) для {chat_id} закончились. Только оплата.")
                         await safe_send(context, chat_id, 
                                         get_text('demo_expired_final', lang=user_lang, name=user_name),
@@ -689,7 +696,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=(demo_count < MAX_DEMO_CYCLES)))
         
         else:
-            # Демо активно или есть Premium
             status_text_key = 'status_premium' if user_entry.get("is_paid") else 'status_demo'
             status_text = get_text(status_text_key, lang=user_lang)
             logger.debug(f"Вернувшийся пользователь {chat_id} с активным статусом: {status_text}.")
@@ -810,15 +816,16 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
         title = get_text('title_rules', lang=lang)
         text = f"📜 <b>{get_text('title_rules_daily', lang=lang, title=title, count=rules_shown_count + 1, limit=RULES_PER_DAY_LIMIT)}</b>\n\n• {rule}"
         
-        await safe_send(context, chat_id, text, reply_markup=markup)
-        
-        user_data["rules_shown_count"] = rules_shown_count + 1
+        # ✅ ИСПРАВЛЕНО: Сначала обновляем, потом сохраняем
+        rules_shown_count += 1
+        user_data["rules_shown_count"] = rules_shown_count
         shown_today_indices.append(rule_index)
         user_data["rules_indices_today"] = shown_today_indices
         if last_rules_date != today_iso: 
             user_data["rules_indices_today"] = [rule_index]
         
         await save_users(context, context.application.bot_data["users"])
+        await safe_send(context, chat_id, text, reply_markup=markup)
 
     except Exception as e:
          await safe_send(context, chat_id, get_text('list_error_unexpected', lang=lang, title=get_text('title_rules', lang=lang)), reply_markup=markup)
@@ -941,8 +948,9 @@ async def handle_pay_real(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
     """Отправляет обычному пользователю инструкции по P2P оплате."""
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
+    user_name = context.application.bot_data["users"].get(str(chat_id), {}).get("name", "друг")
     logger.info(f"Sending P2P (Monobank) instructions to user {chat_id}.")
-    await safe_send(context, chat_id, get_text('pay_instructions', lang=lang), 
+    await safe_send(context, chat_id, get_text('pay_instructions', lang=lang, name=user_name), 
                     disable_web_page_preview=True, reply_markup=markup)
 
 async def handle_pay_api_test(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
@@ -961,8 +969,38 @@ async def handle_pay_api_test(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_data["demo_expiration"] = None
     await save_users(context, users_data)
     
-    await safe_send(context, chat_id, get_text('pay_api_success_test', lang=lang), 
+    await safe_send(context, chat_id, get_text('pay_api_success_test', lang=lang, name=user_data.get("name", "друг")), 
                     reply_markup=get_reply_keyboard_for_user(chat_id, lang, user_data))
+
+async def activate_new_demo(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
+    chat_id = update.effective_chat.id
+    lang = get_user_lang(context, chat_id)
+    users_data = context.application.bot_data.get("users", {})
+    user_data = users_data.get(str(chat_id))
+
+    if not user_data:
+        logger.warning(f"User {chat_id} trying to activate new demo, but not found.")
+        return
+        
+    is_test_user = chat_id in TESTER_USER_IDS
+    demo_duration_days = TESTER_DEMO_DAYS if is_test_user else REGULAR_DEMO_DAYS
+
+    logger.info(f"Activating new demo cycle ({user_data.get('demo_count', 0) + 1}) for user {chat_id}.")
+    user_data["demo_count"] = user_data.get("demo_count", 1) + 1
+    user_data["demo_expiration"] = (datetime.now(ZoneInfo("UTC")) + timedelta(days=demo_duration_days)).isoformat()
+    user_data["challenge_streak"] = 0
+    # user_data["challenges"] = [] # НЕ сбрасываем историю
+    user_data["last_challenge_date"] = None
+    user_data["last_rules_date"] = None
+    user_data["rules_shown_count"] = 0
+    user_data["sent_expiry_warning"] = False
+    
+    await save_users(context, users_data)
+    
+    new_markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
+    await safe_send(context, chat_id, 
+                    get_text('welcome_renewed_demo', lang=lang, name=user_data.get("name", "друг"), demo_days=demo_duration_days), 
+                    reply_markup=new_markup)
 
 
 # --- Админские функции ---
@@ -1038,7 +1076,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             user_data["name"] = user_name
             user_data["active"] = True
             user_data["timezone"] = DEFAULT_TZ.key
-            user_data["demo_count"] = user_data.get("demo_count", 0) + 1
+            # ✅ ИЗМЕНЕНО: demo_count устанавливается в 1
+            user_data["demo_count"] = 1 # user_data.get("demo_count", 0) + 1
             user_data["challenge_streak"] = 0
             user_data["challenges"] = []
             user_data["last_challenge_date"] = None
@@ -1047,7 +1086,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             user_data["sent_expiry_warning"] = False
             user_data["is_paid"] = False # Сброс оплаты (для тестеров)
 
-            demo_duration_days = 1 if is_test_user else DEMO_DAYS
+            demo_duration_days = 1 if is_test_user else REGULAR_DEMO_DAYS
             user_data["demo_expiration"] = (datetime.now(ZoneInfo("UTC")) + timedelta(days=demo_duration_days)).isoformat()
             
             logger.info(f"👤 Пользователь {chat_id} зарегистрирован/обновлен с языком {lang}. Демо: {demo_duration_days} дней.")
@@ -1143,10 +1182,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                  )
                 logger.info(f"Challenge {challenge_index_to_complete} completed by user {chat_id_str}. New streak: {current_streak}")
 
-                if current_streak >= 3:
-                     await safe_send(context, chat_id, get_text('challenge_streak_3', lang=lang, name=user_data.get("name", "друг")))
-                     user_data["challenge_streak"] = 0
-                     await save_users(context, users_data)
+                if current_streak == 3:
+                     await safe_send(context, chat_id, get_text('challenge_streak_3_level_1', lang=lang, name=user_data.get("name", "друг")))
+                     # user_data["challenge_streak"] = 0 # Не сбрасываем, а продолжаем считать
+                     # await save_users(context, users_data)
 
             else:
                  logger.error(f"Invalid challenge index {challenge_index_to_complete} for user {chat_id_str}")
@@ -1191,7 +1230,7 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     is_user_admin = is_admin(chat_id)
     is_test_user = chat_id in TESTER_USER_IDS
     
-    markup = get_reply_keyboard_for_user(chat_id, lang, user_data) # ✅ Клавиатура определяется 1 раз
+    markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
 
     if is_demo_expired(user_data) and not user_data.get("is_paid"):
         logger.info(f"Demo expired for user {chat_id}. Checking access...")
@@ -1204,11 +1243,10 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await handle_pay_real(update, context, markup=markup)
             return
         elif text == get_btn_text('new_demo', lang):
-            await start_command(update, context) # Перезапускаем /start для активации
+            await activate_new_demo(update, context, markup=markup)
             return
         
         # --- Если нажата любая другая кнопка (Профиль, Мотивация и т.д.) ---
-        # Показываем сообщение о статусе, но с той же клавиатурой
         try:
             now_utc = datetime.now(ZoneInfo("UTC"))
             demo_exp_date = datetime.fromisoformat(user_data.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
@@ -1297,7 +1335,6 @@ async def setup_jobs_and_cache(app: Application):
         app.job_queue.run_repeating(centralized_broadcast_job, interval=timedelta(hours=1), first=next_hour)
         logger.info(f"✅ Планировщик (broadcast) настроен! Первая рассылка в: {next_hour.isoformat()}")
         
-        # ✅ НОВЫЙ ПЛАНИРОВЩИК: Проверка истечения демо
         app.job_queue.run_repeating(check_demo_expiry_job, interval=timedelta(hours=1), first=now + timedelta(minutes=2))
         logger.info(f"✅ Планировщик (demo expiry) настроен! Первая проверка в: {(now + timedelta(minutes=2)).isoformat()}")
 
@@ -1372,7 +1409,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v8.9-advanced-demo-cycle-ready"}
+async def health_check(): return {"status": "fotinia-v9.4-demo-logic-ready"}
 
 if __name__ == "__main__":
     try:
@@ -1383,4 +1420,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"❌ Ошибка в polling: {e}")
         logger.exception("Полный traceback:")
-
