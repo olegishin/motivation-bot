@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v9.8 (SHARE & REACTIONS v2)
+🚀 FOTINIA BOT v9.9 (FINAL CLEANUP)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 2 Job Schedulers, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Убрана команда /share. Кнопка "Поделиться" (открывает
-                 список контактов) добавлена в одну строку с кнопками
-                 реакций [🔥] [👍] под всеми рассылками.
+🐞 ИСПРАВЛЕНИЕ: Удалена старая команда /share (т.к. "Поделиться"
+                 теперь в инлайн-кнопках под рассылками).
 """
 import os
 import json
@@ -55,7 +54,7 @@ TESTER_DEMO_DAYS = 1
 TESTER_COOLDOWN_DAYS = 1
 RULES_PER_DAY_LIMIT = 3
 MAX_DEMO_CYCLES = 2
-BOT_USERNAME = "FotiniaBot" # ✅ ВАЖНО: Убедитесь, что это имя вашего бота
+BOT_USERNAME = "FotiniaBot"
 
 logger.info("🤖 Bot starting...")
 logger.info(f"🔑 ADMIN_CHAT_ID configured as: {ADMIN_CHAT_ID}")
@@ -122,7 +121,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v9.8 Share & Reactions v2)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v9.9 Final Cleanup)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -160,7 +159,6 @@ translations = {
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
         "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви наблизитесь до своєї мети та закріпите нові звички.\n\nДля активації, будь ласка, перекажіть **199 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
         "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви наблизитесь до своєї мети та закріпите нові звички. Натисніть /start.",
-        "share_message": "Подобається бот? Натисніть кнопку нижче, щоб поділитися ним з друзями!",
         "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}",
         "reaction_received": "Дякую за вашу реакцію!",
         "profile_title": "👤 <b>Ваш профіль:</b>",
@@ -194,7 +192,7 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v9.8 Share & Reactions v2)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v9.9 Final Cleanup)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
@@ -232,7 +230,6 @@ translations = {
         "pay_info": "💳 For full access, please contact the administrator.",
         "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will get closer to your goal and build new habits.\n\nTo activate, please transfer **199 UAH** to this Monobank 'Banka' (jar):\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
         "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will get closer to your goal and build new habits. Press /start.",
-        "share_message": "Like this bot? Press the button below to share it with friends!",
         "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}",
         "reaction_received": "Thanks for your feedback!",
         "profile_title": "👤 <b>Your Profile:</b>",
@@ -266,7 +263,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v9.8 Share & Reactions v2)",
+        "admin_bot_started": "🤖 Bot successfully launched (v9.9 Final Cleanup)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -552,7 +549,6 @@ async def safe_send(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str,
         logger.warning(f"Ошибка отправки сообщения в чат {chat_id}: {e}")
         return False
 
-# ✅ НОВАЯ ФУНКЦИЯ: Создает клавиатуру для рассылок
 def get_broadcast_keyboard(context: ContextTypes.DEFAULT_TYPE, lang: str) -> InlineKeyboardMarkup:
     """Создает инлайн-клавиатуру с реакциями и кнопкой 'Поделиться'."""
     bot_username = context.bot.username or BOT_USERNAME
@@ -608,7 +604,6 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
                 if now_utc.astimezone(user_tz).hour == hour:
                     logger.debug(f"Sending '{key}' to user {chat_id_str} at their local {hour}:00")
                     phrase = random.choice(lang_specific_phrases).format(name=user_data.get("name", "друг"))
-                    # ✅ ИЗМЕНЕНО: Добавляем кнопки реакций/поделиться
                     reaction_keyboard = get_broadcast_keyboard(context, user_lang)
                     tasks.append(safe_send(context, chat_id, phrase, reply_markup=reaction_keyboard))
             except Exception as e: logger.error(f"Ошибка в планировщике (broadcast) для {chat_id_str}: {e}")
@@ -815,7 +810,7 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
                 user_data["rules_shown_count"] = 0
                 rules_shown_count = 0
 
-            if rules_shown_count >= RULES_PER_DAY_LIMIT:
+            if rules_shown_count >= RULES_PER_DAY_LIMIT: # ✅ Лимит работает для всех
                 logger.debug(f"User {chat_id} already received {RULES_PER_DAY_LIMIT} rules today.")
                 await safe_send(context, chat_id, get_text('rules_limit_reached', lang=lang), reply_markup=markup)
                 return
@@ -1088,11 +1083,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if query.data.startswith("reaction:"):
         reaction = query.data.split(":")[-1]
         logger.info(f"Reaction received from {chat_id}: {reaction}")
-        # Просто отвечаем пользователю, чтобы кнопка "отжалась"
         await query.answer(text=get_text('reaction_received', lang=lang))
         return
 
-    await query.answer() # Отвечаем на все остальные callback'и
+    await query.answer()
     logger.info(f"💬 Callback от {chat_id} (lang: {lang}): {query.data}")
 
     users_data = context.application.bot_data["users"]
@@ -1441,7 +1435,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v9.8-share-reactions-ready"}
+async def health_check(): return {"status": "fotinia-v9.9-final-demo-logic-ready"}
 
 if __name__ == "__main__":
     try:
@@ -1452,4 +1446,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"❌ Ошибка в polling: {e}")
         logger.exception("Полный traceback:")
-
