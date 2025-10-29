@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v9.9 (FINAL CLEANUP)
+🚀 FOTINIA BOT v10.1 (STARTUP CRASH FIX)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 2 Job Schedulers, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Удалена старая команда /share (т.к. "Поделиться"
-                 теперь в инлайн-кнопках под рассылками).
+🐞 ИСПРАВЛЕНИЕ: Исправлена критическая NameError (удален обработчик для
+                 несуществующей команды /share), которая мешала запуску.
 """
 import os
 import json
@@ -121,7 +121,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v9.9 Final Cleanup)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v10.1 Startup Crash Fix)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -192,7 +192,7 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v9.9 Final Cleanup)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v10.1 Startup Crash Fix)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
@@ -263,7 +263,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v9.9 Final Cleanup)",
+        "admin_bot_started": "🤖 Bot successfully launched (v10.1 Startup Crash Fix)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -663,6 +663,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_test_user = (chat_id in TESTER_USER_IDS)
     is_new_user = (user_entry is None)
     
+    # ✅ ИСПРАВЛЕНО: Тестеры всегда проходят поток "нового пользователя"
     if is_new_user or is_test_user:
         logger.info(f"Поток нового пользователя для {chat_id} (Новый: {is_new_user}, Тестер: {is_test_user})")
         keyboard = [
@@ -673,6 +674,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_send(context, chat_id, get_text('lang_choose_first', lang=DEFAULT_LANG), reply_markup=InlineKeyboardMarkup(keyboard))
     
     else:
+        # --- Логика для вернувшихся ОБЫЧНЫХ пользователей ---
         user_lang = user_entry.get("language", DEFAULT_LANG)
         user_name = user_entry.get("name", "друг")
         
@@ -810,7 +812,8 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
                 user_data["rules_shown_count"] = 0
                 rules_shown_count = 0
 
-            if rules_shown_count >= RULES_PER_DAY_LIMIT: # ✅ Лимит работает для всех
+            # ✅ ИСПРАВЛЕНО: Лимит теперь работает для ВСЕХ
+            if rules_shown_count >= RULES_PER_DAY_LIMIT:
                 logger.debug(f"User {chat_id} already received {RULES_PER_DAY_LIMIT} rules today.")
                 await safe_send(context, chat_id, get_text('rules_limit_reached', lang=lang), reply_markup=markup)
                 return
@@ -1079,7 +1082,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     
     lang = new_lang
     
-    # ✅ НОВЫЙ БЛОК: Обработка реакций
     if query.data.startswith("reaction:"):
         reaction = query.data.split(":")[-1]
         logger.info(f"Reaction received from {chat_id}: {reaction}")
@@ -1372,7 +1374,8 @@ application = ApplicationBuilder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(CommandHandler("pay", pay_command))
 application.add_handler(CommandHandler("language", language_command))
-application.add_handler(CommandHandler("share", share_command)) # ✅ НОВАЯ КОМАНДА
+# ✅ ИСПРАВЛЕНО: Убран обработчик для /share
+# application.add_handler(CommandHandler("share", share_command)) 
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_handler))
 application.add_handler(CallbackQueryHandler(handle_callback_query))
 
