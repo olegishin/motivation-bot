@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v10.1 (STARTUP CRASH FIX)
+🚀 FOTINIA BOT v10.5 (FINAL FEATURES)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 2 Job Schedulers, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Исправлена критическая NameError (удален обработчик для
-                 несуществующей команды /share), которая мешала запуску.
+🐞 ИСПРАВЛЕНИЕ: Добавлены Лайк/Дизлайк (со статистикой в профиле) и
+                 кнопка "Поделиться" (URL) под рассылками.
+                 Сумма оплаты изменена на 245 грн.
+                 Бот теперь отслеживает смену имени пользователя.
 """
 import os
 import json
@@ -15,7 +17,7 @@ import tempfile
 import shutil
 import re
 import sys
-import urllib.parse # Для кодирования URL в /share
+import urllib.parse 
 from pathlib import Path
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
@@ -86,16 +88,18 @@ translations = {
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nВы можете активировать **еще один** пробный период ({demo_days} дня) или получить постоянный Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваши пробные периоды закончились.</b>\n\nДля возобновления доступа, пожалуйста, активируйте Premium-подписку. 👇",
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
-        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы приблизитесь к своей цели и закрепите новые привычки.\n\nДля активации, пожалуйста, переведите **199 грн** на эту Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
-        "pay_api_success_test": "✅ {name}, добро пожаловать в Premium! (Тест API)\nЯ буду Вашей поддержкой в течение 30 дней. За это время Вы приблизитесь к своей цели и закрепите новые привычки. Нажмите /start.",
+        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите **245 грн** на эту Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
+        "pay_api_success_test": "✅ {name}, добро пожаловать в Premium! (Тест API)\nЯ буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение). Нажмите /start.",
         "share_text_template": "Посмотри, какой бот мне помогает двигаться к цели! @{bot_username}",
-        "reaction_received": "Спасибо за вашу реакцию!",
+        "reaction_received": "Благодарю за твою реакцию, {name}!",
         "profile_title": "👤 <b>Ваш профиль:</b>",
         "profile_name": "📛 Имя",
         "profile_challenges_accepted": "⚔️ Принято челленджей",
         "profile_challenges_completed": "✅ Выполнено",
         "profile_challenge_streak": "🔥 Серия выполнений",
         "profile_status": "💰 Статус",
+        "profile_likes": "👍 Лайки",
+        "profile_dislikes": "👎 Дизлайки",
         "status_premium": "⭐ Premium",
         "status_demo": "🆓 Демо",
         "list_empty": "⚠️ Список для '{title}' пуст.",
@@ -121,7 +125,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v10.1 Startup Crash Fix)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v10.5 Final Features)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -157,16 +161,18 @@ translations = {
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати **ще один** пробний період ({demo_days} дні) або отримати постійний Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваші пробні періоди закінчилися.</b>\n\nДля відновлення доступу, будь ласка, активуйте Premium-підписку. 👇",
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
-        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви наблизитесь до своєї мети та закріпите нові звички.\n\nДля активації, будь ласка, перекажіть **199 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
-        "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви наблизитесь до своєї мети та закріпите нові звички. Натисніть /start.",
+        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть **245 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
+        "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення). Натисніть /start.",
         "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}",
-        "reaction_received": "Дякую за вашу реакцію!",
+        "reaction_received": "Дякую за твою реакцию, {name}!",
         "profile_title": "👤 <b>Ваш профіль:</b>",
         "profile_name": "📛 Ім'я",
         "profile_challenges_accepted": "⚔️ Прийнято челенджів",
         "profile_challenges_completed": "✅ Виконано",
         "profile_challenge_streak": "🔥 Серія виконань",
         "profile_status": "💰 Статус",
+        "profile_likes": "👍 Лайки",
+        "profile_dislikes": "👎 Дизлайки",
         "status_premium": "⭐ Premium",
         "status_demo": "🆓 Демо",
         "list_empty": "⚠️ Список для '{title}' порожній.",
@@ -192,14 +198,14 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v10.1 Startup Crash Fix)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v10.5 Final Features)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
         "btn_motivate": "💪 Мотивуй мене", "btn_rhythm": "🎵 Ритм дня",
         "btn_challenge": "⚔️ Челендж дня", "btn_rules": "📜 Правила Всесвіту",
         "btn_profile": "👤 Профіль",
-        "btn_share": "💌 Поділитися з другом",
+        "btn_share": "💌 Поділитися",
         "btn_show_users": "📂 Дивитися users.json", "btn_stats": "📊 Статистика",
         "btn_reload_data": "🔄 Оновити",
         "btn_pay_real": "💳 Активувати підписку",
@@ -228,16 +234,18 @@ translations = {
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can activate **one more** trial period ({demo_days} days) or get permanent Premium access.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Your trial periods have ended.</b>\n\nTo resume access, please activate your Premium subscription. 👇",
         "pay_info": "💳 For full access, please contact the administrator.",
-        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will get closer to your goal and build new habits.\n\nTo activate, please transfer **199 UAH** to this Monobank 'Banka' (jar):\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
-        "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will get closer to your goal and build new habits. Press /start.",
+        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message).\n\nTo activate, please transfer **245 UAH** to this Monobank 'Banka' (jar):\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
+        "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
         "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}",
-        "reaction_received": "Thanks for your feedback!",
+        "reaction_received": "Thank you for your reaction, {name}!",
         "profile_title": "👤 <b>Your Profile:</b>",
         "profile_name": "📛 Name",
         "profile_challenges_accepted": "⚔️ Challenges Accepted",
         "profile_challenges_completed": "✅ Completed",
         "profile_challenge_streak": "🔥 Completion Streak",
         "profile_status": "💰 Status",
+        "profile_likes": "👍 Likes",
+        "profile_dislikes": "👎 Dislikes",
         "status_premium": "⭐ Premium",
         "status_demo": "🆓 Demo",
         "list_empty": "⚠️ The list for '{title}' is empty.",
@@ -263,7 +271,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v10.1 Startup Crash Fix)",
+        "admin_bot_started": "🤖 Bot successfully launched (v10.5 Final Features)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -559,8 +567,8 @@ def get_broadcast_keyboard(context: ContextTypes.DEFAULT_TYPE, lang: str) -> Inl
 
     keyboard = [
         [
-            InlineKeyboardButton("🔥", callback_data="reaction:fire"),
             InlineKeyboardButton("👍", callback_data="reaction:like"),
+            InlineKeyboardButton("👎", callback_data="reaction:dislike"),
             InlineKeyboardButton(get_text('btn_share', lang=lang), url=share_url)
         ]
     ]
@@ -663,7 +671,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_test_user = (chat_id in TESTER_USER_IDS)
     is_new_user = (user_entry is None)
     
-    # ✅ ИСПРАВЛЕНО: Тестеры всегда проходят поток "нового пользователя"
     if is_new_user or is_test_user:
         logger.info(f"Поток нового пользователя для {chat_id} (Новый: {is_new_user}, Тестер: {is_test_user})")
         keyboard = [
@@ -674,7 +681,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_send(context, chat_id, get_text('lang_choose_first', lang=DEFAULT_LANG), reply_markup=InlineKeyboardMarkup(keyboard))
     
     else:
-        # --- Логика для вернувшихся ОБЫЧНЫХ пользователей ---
         user_lang = user_entry.get("language", DEFAULT_LANG)
         user_name = user_entry.get("name", "друг")
         
@@ -737,6 +743,15 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(get_text('lang_choose', lang=lang), reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    lang = get_user_lang(context, chat_id)
+    bot_username = context.bot.username or BOT_USERNAME
+    share_text = get_text('share_message', lang=lang, bot_username=bot_username)
+    
+    await safe_send(context, chat_id, share_text)
+
+
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
@@ -747,12 +762,20 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
     status_key = 'status_premium' if user_data.get('is_paid') else 'status_demo'
     status_text = get_text(status_key, lang=lang)
     
+    # ✅ НОВАЯ ЛОГИКА: Добавлена статистика
+    likes_count = user_data.get("stats_likes", 0)
+    dislikes_count = user_data.get("stats_dislikes", 0)
+    
     text = (f"{get_text('profile_title', lang=lang)}\n\n"
             f"{get_text('profile_name', lang=lang)}: {user_data.get('name', 'Неизвестно')}\n"
+            f"{get_text('profile_status', lang=lang)}: {status_text}\n\n"
+            f"<b>📊 Статистика:</b>\n"
             f"{get_text('profile_challenges_accepted', lang=lang)}: {len(user_data.get('challenges', []))}\n"
             f"{get_text('profile_challenges_completed', lang=lang)}: {completed_challenges}\n"
             f"{get_text('profile_challenge_streak', lang=lang)}: {user_data.get('challenge_streak', 0)} 🔥\n"
-            f"{get_text('profile_status', lang=lang)}: {status_text}")
+            f"{get_text('profile_likes', lang=lang)}: {likes_count}\n"
+            f"{get_text('profile_dislikes', lang=lang)}: {dislikes_count}")
+            
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
 
@@ -801,7 +824,6 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
             user_data = context.application.bot_data["users"].get(str(chat_id), {})
             user_tz = ZoneInfo(user_data.get("timezone", DEFAULT_TZ.key))
             today_iso = datetime.now(user_tz).date().isoformat()
-            is_test_user = chat_id in TESTER_USER_IDS
 
             last_rules_date = user_data.get("last_rules_date")
             rules_shown_count = user_data.get("rules_shown_count", 0)
@@ -812,7 +834,6 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
                 user_data["rules_shown_count"] = 0
                 rules_shown_count = 0
 
-            # ✅ ИСПРАВЛЕНО: Лимит теперь работает для ВСЕХ
             if rules_shown_count >= RULES_PER_DAY_LIMIT:
                 logger.debug(f"User {chat_id} already received {RULES_PER_DAY_LIMIT} rules today.")
                 await safe_send(context, chat_id, get_text('rules_limit_reached', lang=lang), reply_markup=markup)
@@ -1082,17 +1103,27 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     
     lang = new_lang
     
+    users_data = context.application.bot_data["users"]
+    user_data = users_data.get(chat_id_str, {})
+    
     if query.data.startswith("reaction:"):
+        await query.answer() 
         reaction = query.data.split(":")[-1]
         logger.info(f"Reaction received from {chat_id}: {reaction}")
-        await query.answer(text=get_text('reaction_received', lang=lang))
+        
+        # ✅ НОВАЯ ЛОГИКА: Сохранение статистики
+        if reaction == "like":
+            user_data["stats_likes"] = user_data.get("stats_likes", 0) + 1
+        elif reaction == "dislike":
+            user_data["stats_dislikes"] = user_data.get("stats_dislikes", 0) + 1
+        await save_users(context, users_data)
+        
+        await safe_send(context, chat_id, get_text('reaction_received', lang=lang, name=user_data.get("name", "друг")))
         return
 
     await query.answer()
     logger.info(f"💬 Callback от {chat_id} (lang: {lang}): {query.data}")
-
-    users_data = context.application.bot_data["users"]
-    user_data = users_data.get(chat_id_str, {})
+    
     data = query.data
 
     if data.startswith("set_lang_"):
@@ -1245,10 +1276,18 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if not update.message or not update.message.text: return
 
     text, chat_id = update.message.text, update.effective_chat.id
+    
+    user_data = context.application.bot_data.get("users", {}).get(str(chat_id))
+    if user_data:
+        new_name = update.message.from_user.first_name or "друг"
+        if user_data.get("name") != new_name:
+            logger.info(f"Updating name for user {chat_id}: from '{user_data.get('name')}' to '{new_name}'")
+            user_data["name"] = new_name
+            await save_users(context, context.application.bot_data)
+    
     lang = get_user_lang(context, chat_id)
     logger.debug(f"Received message from {chat_id} (lang: {lang}): '{text}'")
 
-    user_data = context.application.bot_data.get("users", {}).get(str(chat_id))
     if not user_data:
         logger.warning(f"User {chat_id} not found in bot_data. Asking to /start.")
         await update.message.reply_text(get_text('start_required', lang=DEFAULT_LANG))
@@ -1262,7 +1301,6 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if is_demo_expired(user_data) and not user_data.get("is_paid"):
         logger.info(f"Demo expired for user {chat_id}. Checking access...")
         
-        # --- Обработка кнопок оплаты/демо ---
         if text == get_btn_text('pay_api_test', lang) and is_test_user:
             await handle_pay_api_test(update, context, markup=markup)
             return
@@ -1273,7 +1311,6 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await activate_new_demo(update, context, markup=markup)
             return
         
-        # --- Если нажата любая другая кнопка (Профиль, Мотивация и т.д.) ---
         try:
             now_utc = datetime.now(ZoneInfo("UTC"))
             demo_exp_date = datetime.fromisoformat(user_data.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
@@ -1374,8 +1411,7 @@ application = ApplicationBuilder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(CommandHandler("pay", pay_command))
 application.add_handler(CommandHandler("language", language_command))
-# ✅ ИСПРАВЛЕНО: Убран обработчик для /share
-# application.add_handler(CommandHandler("share", share_command)) 
+application.add_handler(CommandHandler("share", share_command)) 
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_handler))
 application.add_handler(CallbackQueryHandler(handle_callback_query))
 
@@ -1438,7 +1474,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v9.9-final-demo-logic-ready"}
+async def health_check(): return {"status": "fotinia-v10.5-final-features-ready"}
 
 if __name__ == "__main__":
     try:
