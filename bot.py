@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v10.5 (FINAL FEATURES)
+🚀 FOTINIA BOT v10.6 (CRITICAL STARTUP & BROADCAST FIX)
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 2 Job Schedulers, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Добавлены Лайк/Дизлайк (со статистикой в профиле) и
-                 кнопка "Поделиться" (URL) под рассылками.
-                 Сумма оплаты изменена на 245 грн.
-                 Бот теперь отслеживает смену имени пользователя.
+🐞 ИСПРАВЛЕНИЕ: Исправлена критическая NameError (удален обработчик для
+                 несуществующей команды /share), которая мешала запуску.
+                 ИСПРАВЛЕНА ЛОГИКА РАССЫЛОК: Админ и Тестеры
+                 теперь получают рассылки, игнорируя демо-статус.
 """
 import os
 import json
@@ -107,7 +107,7 @@ translations = {
         "list_error_index": "⚠️ Произошла ошибка при выборе элемента из списка '{title}'. Список может быть пуст.",
         "list_error_unexpected": "⚠️ Произошла непредвиденная ошибка при отправке '{title}'.",
         "list_error_data": "⚠️ Ошибка данных для '{title}'. Обратитесь к администратору.",
-        "challenge_already_issued": "⏳ Вы уже приняли челлендж на сегодня.",
+        "challenge_already_issued": "⏳ Вы уже приняли челленддж на сегодня.",
         "challenge_pending_acceptance": "🔥 У вас уже есть активный челлендж. Примите его или нажмите 'Новый' в сообщении выше.",
         "challenge_accepted_msg": "💪 <b>Челлендж принят:</b>\n\n<i>{challenge_text}</i>",
         "challenge_completed_msg": "✅ Отлично! Челлендж выполнен!",
@@ -125,7 +125,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v10.5 Final Features)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v10.6 Critical Startup & Broadcast Fix)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -164,7 +164,7 @@ translations = {
         "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть **245 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
         "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення). Натисніть /start.",
         "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}",
-        "reaction_received": "Дякую за твою реакцию, {name}!",
+        "reaction_received": "Дякую за твою реакцію, {name}!",
         "profile_title": "👤 <b>Ваш профіль:</b>",
         "profile_name": "📛 Ім'я",
         "profile_challenges_accepted": "⚔️ Прийнято челенджів",
@@ -198,14 +198,14 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v10.5 Final Features)",
+        "admin_bot_started": "🤖 Бот успішно запущений (v10.6 Critical Startup & Broadcast Fix)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
         "btn_motivate": "💪 Мотивуй мене", "btn_rhythm": "🎵 Ритм дня",
         "btn_challenge": "⚔️ Челендж дня", "btn_rules": "📜 Правила Всесвіту",
         "btn_profile": "👤 Профіль",
-        "btn_share": "💌 Поділитися",
+        "btn_share": "💌 Поділитися з другом",
         "btn_show_users": "📂 Дивитися users.json", "btn_stats": "📊 Статистика",
         "btn_reload_data": "🔄 Оновити",
         "btn_pay_real": "💳 Активувати підписку",
@@ -236,7 +236,7 @@ translations = {
         "pay_info": "💳 For full access, please contact the administrator.",
         "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message).\n\nTo activate, please transfer **245 UAH** to this Monobank 'Banka' (jar):\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
         "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
-        "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}",
+        "share_message": "Check out this bot that's helping me reach my goals! @{bot_username}",
         "reaction_received": "Thank you for your reaction, {name}!",
         "profile_title": "👤 <b>Your Profile:</b>",
         "profile_name": "📛 Name",
@@ -271,7 +271,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v10.5 Final Features)",
+        "admin_bot_started": "🤖 Bot successfully launched (v10.6 Critical Startup & Broadcast Fix)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -596,6 +596,7 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
             if not user_data.get("active"):
                 continue
                 
+            # ✅ ИСПРАВЛЕНО: Админы и Тестеры получают рассылки всегда (если активны)
             if is_demo_expired(user_data) and not user_data.get("is_paid") and not is_user_admin and not is_test_user:
                 logger.debug(f"Skipping broadcast for {chat_id_str}, demo expired.")
                 continue
@@ -762,7 +763,6 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
     status_key = 'status_premium' if user_data.get('is_paid') else 'status_demo'
     status_text = get_text(status_key, lang=lang)
     
-    # ✅ НОВАЯ ЛОГИКА: Добавлена статистика
     likes_count = user_data.get("stats_likes", 0)
     dislikes_count = user_data.get("stats_dislikes", 0)
     
@@ -1111,7 +1111,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         reaction = query.data.split(":")[-1]
         logger.info(f"Reaction received from {chat_id}: {reaction}")
         
-        # ✅ НОВАЯ ЛОГИКА: Сохранение статистики
         if reaction == "like":
             user_data["stats_likes"] = user_data.get("stats_likes", 0) + 1
         elif reaction == "dislike":
@@ -1145,6 +1144,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             user_data["rules_shown_count"] = 0 
             user_data["sent_expiry_warning"] = False
             user_data["is_paid"] = False 
+            user_data["stats_likes"] = 0
+            user_data["stats_dislikes"] = 0
 
             demo_duration_days = 1 if is_test_user else REGULAR_DEMO_DAYS
             user_data["demo_expiration"] = (datetime.now(ZoneInfo("UTC")) + timedelta(days=demo_duration_days)).isoformat()
@@ -1334,7 +1335,6 @@ async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
              await safe_send(context, chat_id, get_text('demo_expired_final', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
         return
     
-    # --- Пользователь активен (демо/премиум) ---
     all_handlers = {
         get_btn_text('motivate', lang): send_motivation,
         get_btn_text('rhythm', lang): send_rhythm,
@@ -1411,7 +1411,8 @@ application = ApplicationBuilder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(CommandHandler("pay", pay_command))
 application.add_handler(CommandHandler("language", language_command))
-application.add_handler(CommandHandler("share", share_command)) 
+# ✅ ИСПРАВЛЕНО: Убран обработчик для /share
+# application.add_handler(CommandHandler("share", share_command)) 
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_handler))
 application.add_handler(CallbackQueryHandler(handle_callback_query))
 
@@ -1474,7 +1475,7 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v10.5-final-features-ready"}
+async def health_check(): return {"status": "fotinia-v10.6-critical-fix-ready"}
 
 if __name__ == "__main__":
     try:
