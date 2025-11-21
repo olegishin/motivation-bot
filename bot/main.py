@@ -12,7 +12,7 @@ from aiogram.fsm.state import State
 # --- Импорты ---
 from config import settings, logger
 from localization import t, Lang
-from user_loader import load_static_data, load_users_with_fix # Загрузка JSON
+from user_loader import load_static_data, load_users_with_fix 
 from scheduler import setup_jobs_and_cache, scheduler
 from utils import AccessMiddleware
 from middlewares import TrackActivityMiddleware 
@@ -22,7 +22,7 @@ from database import db
 from commands import router as commands_router
 from button_handlers import router as button_router
 from callbacks import router as callback_router
-# ✅ ВАЖНО: Переименовал для ясности, что это ВЕБ-админка
+# ✅ ВАЖНО: Импортируем веб-админку как web_admin_router
 from admin_routes import router as web_admin_router 
 
 # --- FSM Хранилище (асинхронное) ---
@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
     # 1. Инициализация БД
     await db.init() 
     
-    # 2. Загрузка статических данных (JSON) - ВОТ ЧТО ЧИНИТ КОНТЕНТ
+    # 2. Загрузка статических данных (JSON)
     try:
         static_data = await load_static_data()
         logger.info(f"✅ Loaded static data keys: {list(static_data.keys())}")
@@ -75,9 +75,9 @@ async def lifespan(app: FastAPI):
     dp.include_router(commands_router)
     dp.include_router(button_router)
     dp.include_router(callback_router)
-    # ❌ УБРАЛИ dp.include_router(admin_router) ОТСЮДА (это вызывало ошибку)
+    # ❌ admin_routes здесь НЕ подключаем
     
-    # 5. Middlewares (ВАЖНО для языка и данных юзера)
+    # 5. Middlewares
     dp.update.outer_middleware(AccessMiddleware())
     dp.update.middleware(TrackActivityMiddleware())
     
@@ -102,6 +102,11 @@ async def lifespan(app: FastAPI):
 # --- FastAPI Приложение ---
 app = FastAPI(lifespan=lifespan)
 
+# ✅ Health Check (для прохождения Fly.io проверки)
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+    
 # ✅ 7. Подключаем админку ТОЛЬКО к сайту
 app.include_router(web_admin_router) 
 
