@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """
-🚀 FOTINIA BOT v10.7 (ULTIMATE DEMO LOGIC)
+🚀 FOTINIA BOT v10.16.1 (Auto-TZ, Admin Grant & JobQueue Backups)
+
 ✅ ФУНКЦИОНАЛ: Полная админка, /pay, сложная логика челленджей, локализация (RU/UA/EN).
 ✅ АРХИТЕКТУРА: FastAPI, JSON+Lock, 2 Job Schedulers, современная работа со временем.
-🐞 ИСПРАВЛЕНИЕ: Реализована финальная демо-логика: 5+1+5 дней (обычные)
-                 с "неактивными" кнопками и таймером во время "отдыха".
-                 Обновлены тексты и логика оплаты.
+
+✅ НОВОЕ v10.16: Бэкапы users.json теперь запускаются через JobQueue (каждые 6 часов).
+✅ НОВОЕ v10.15: Добавлена админ-команда /grant [ID] для выдачи Premium.
+✅ НОВОЕ v10.15: Автоматическое определение часового пояса при регистрации.
+✅ НОВОЕ v10.15: Убрана кнопка "⚙️ Настройки" (команда /timezone оставлена).
+
+🐞 ИСПРАВЛЕНИЕ v10.16.1 (CRITICAL): Исправлен 'TypeError' (multiple values for 'parse_mode')
+    при регистрации нового пользователя (в handle_callback_query).
+🐞 ИСПРАВЛЕНИЕ v10.16.1: Исправлена передача 'context' в 'get_user_lang'
+    внутри handle_callback_query.
 """
 import os
 import json
@@ -16,20 +24,19 @@ import tempfile
 import shutil
 import re
 import sys
-import urllib.parse 
+import urllib.parse
 from pathlib import Path
-from datetime import datetime, timedelta, date
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, date, time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict
 from contextlib import asynccontextmanager
 
 # Webhook и FastAPI
 from fastapi import FastAPI, Request
-
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Application
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    CallbackQueryHandler, ContextTypes, filters, ConversationHandler
 )
 from telegram.constants import ParseMode
 from telegram.error import Forbidden, BadRequest, RetryAfter
@@ -46,26 +53,114 @@ logger.setLevel(logging.DEBUG)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-TESTER_USER_IDS = {290711961, 6104624108} 
-DEFAULT_LANG = "ru" 
-DEFAULT_TZ = ZoneInfo("Europe/Kiev")
+TESTER_USER_IDS = {290711961, 6104624108}
+
+# --- v10.11: Конфигурация Симулятора ---
+# ID пользователя @fotinia_admin для симуляции 2+1+2
+SIMULATOR_USER_IDS = {6112492697}
+# ------------------------------------
+
+DEFAULT_LANG = "ru"
+DEFAULT_TZ_KEY = "Europe/Kiev" # ⭐️ v10.15: Стало ключом по умолчанию
+DEFAULT_TZ = ZoneInfo(DEFAULT_TZ_KEY)
+
 REGULAR_DEMO_DAYS = 5
 REGULAR_COOLDOWN_DAYS = 1
 TESTER_DEMO_DAYS = 1
 TESTER_COOLDOWN_DAYS = 1
+
 RULES_PER_DAY_LIMIT = 3
 MAX_DEMO_CYCLES = 2
+
 BOT_USERNAME = "FotiniaBot"
 
 logger.info("🤖 Bot starting...")
 logger.info(f"🔑 ADMIN_CHAT_ID configured as: {ADMIN_CHAT_ID}")
 logger.info(f"🧪 TESTER_USER_IDS configured as: {TESTER_USER_IDS}")
+logger.info(f"🎮 SIMULATOR_USER_IDS configured as: {SIMULATOR_USER_IDS}")
 
 # --- 📍 ПУТИ К ФАЙЛАМ ---
 DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
 
 # --- 📄 НАЗВАНИЯ ФАЙЛОВ ---
 USERS_FILE = DATA_DIR / "users.json"
+
+# --- ⭐️ FIX v10.14: НОВАЯ ФУНКЦИЯ ЗАГРУЗКИ С "ЛЕЧЕНИЕМ" ---
+def load_users_with_fix():
+    """
+    Загружает данные пользователей из файла.
+    ВКЛЮЧАЕТ ОБХОДНОЙ МАНЕВР для исправления поврежденной структуры v10.12.
+    """
+    try:
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        logger.info(f"Файл '{USERS_FILE}' не найден. Будет создан новый.")
+        return {}
+    except json.JSONDecodeError:
+        logger.warning(f"Файл '{USERS_FILE}' пуст или содержит невалидный JSON. Будет создан новый.")
+        return {}
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при чтении {USERS_FILE}: {e}")
+        return {}
+
+    # --- НАЧАЛО ОБХОДНОГО МАНЕВРА ---
+    
+    # Проверяем, имеет ли файл поврежденную структуру (от v10.12)
+    # т.е. содержит ключи 'users', 'rules' и т.д. на верхнем уровне
+    if isinstance(data, dict) and 'users' in data and ('rules' in data or 'motivations' in data):
+        
+        logger.warning(f"ОБНАРУЖЕНА ПОВРЕЖДЕННАЯ СТРУКТУРА '{USERS_FILE}'. Применяется авто-исправление...")
+        
+        # 1. Извлекаем правильные данные (то, что лежит ВНУТРИ 'users')
+        correct_data = data.get('users', {})
+        
+        if not isinstance(correct_data, dict):
+            logger.error("Критическая ошибка: 'users' внутри файла - не словарь. Сбрасываю к пустым данным.")
+            correct_data = {}
+
+        # 2. (ВАЖНО) Перезаписываем файл ТОЛЬКО правильными данными
+        try:
+            with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(correct_data, f, indent=4, ensure_ascii=False)
+            logger.info(f"Файл '{USERS_FILE}' УСПЕШНО ИСПРАВЛЕН (перезаписан).")
+        except IOError as e:
+            logger.error(f"НЕ УДАЛОСЬ перезаписать '{USERS_FILE}': {e}.")
+        
+        # 3. Возвращаем боту уже исправленные данные
+        return correct_data
+    
+    # --- КОНЕЦ ОБХОДНОГО МАНЕВРА ---
+
+    if not isinstance(data, dict):
+         logger.warning(f"ПРЕДУПРЕЖДЕНИЕ: {USERS_FILE} содержит не словарь. Сбрасываю к пустому словарю.")
+         return {}
+             
+    logger.info(f"Успешно загружены данные из {USERS_FILE}.")
+    return data # Возвращаем данные как есть
+# --- ⭐️ КОНЕЦ ФИКСА v10.14 ---
+
+# --- ⭐️ v10.15: НОВЫЙ ХЕЛПЕР ДЛЯ АВТО-TZ ---
+def get_tz_from_lang(lang_code: str | None) -> str:
+    """Автоматически определяет TZ по языку. По умолчанию - Киев."""
+    if not lang_code:
+        return DEFAULT_TZ_KEY
+    
+    lang_code = lang_code.lower()
+    
+    if lang_code.startswith('ru'):
+        return "Europe/Moscow"
+    if lang_code.startswith('ua'):
+        return "Europe/Kiev"
+    if lang_code.startswith('pl'):
+        return "Europe/Warsaw"
+    if lang_code.startswith('de'):
+        return "Europe/Berlin"
+    
+    # Для 'en' и всех остальных - Киев по умолчанию
+    return DEFAULT_TZ_KEY
+# --- ⭐️ КОНЕЦ v10.15 ---
+
 FILE_MAPPING = {
     "rules": "universe_laws.json",
     "motivations": "fotinia_motivations.json", "ritm": "fotinia_ritm.json",
@@ -75,20 +170,35 @@ FILE_MAPPING = {
 
 # --- 🌐 ЛОКАЛИЗАЦИЯ ---
 COMMON_LANG_CHOOSE_FIRST = "Вітаю! Будь ласка, оберіть мову: 👇\n\nEnglish: Please select a language: 👇\n\nЗдравствуйте! Пожалуйста, выберите язык: 👇"
-
 translations = {
     "ru": {
         "lang_choose_first": COMMON_LANG_CHOOSE_FIRST,
         "welcome": "🌟 Привет, {name}! Я Фотиния, твой бот-помощник по саморазвитию.\n\nЯ буду присылать тебе сообщения 4 раза в день, чтобы помочь держать фокус. У тебя есть ознакомительный период ({demo_days} дня), чтобы попробовать все функции. Начнем! 👇",
         "welcome_return": "🌟 С возвращением, {name}! Рад снова тебя видеть. Твой {status_text} доступ активен. Используй кнопки ниже 👇",
         "welcome_renewed_demo": "🌟 {name}, с возвращением! У Вас новый демо-период на {demo_days} дней. Все функции возобновлены. Достигнутые ранее уровни сброшены. В добрый путь! 👇",
+        
+        # --- ⭐️ v10.15: TIMEZONE И GRANT ПЕРЕВОДЫ ---
+        "welcome_timezone_note": "\n\nP.S. Ваш часовой пояс был автоматически установлен: <code>{default_tz}</code>. Если он неверный, используйте команду /timezone, чтобы его изменить.",
+        # "btn_settings": "⚙️ Настройки", # Убрано
+        "timezone_command_text": "⚙️ <b>Настройка часового пояса</b>\n\nВаш текущий пояс: <code>{user_tz}</code>\n\nЧтобы изменить его, <b>отправьте свой часовой пояс</b> в формате IANA (TZ Database).\n\nНапример:\n<code>Europe/Berlin</code>\n<code>Europe/Warsaw</code>\n<code>America/New_York</code>\n<code>Asia/Tbilisi</code>\n\nОтправьте /cancel для отмены.",
+        "timezone_set_success": "✅ Часовой пояс обновлен на <code>{new_tz}</code>.",
+        "timezone_set_error": "⚠️ Ошибка. <code>{error_text}</code> - это невалидный часовой пояс. Попробуйте еще раз (например, <code>Europe/Kiev</code>) или нажмите /cancel.",
+        "timezone_cancel": "✅ Настройка отменена. Ваш часовой пояс остался: <code>{user_tz}</code>.",
+        "cmd_cancel": "Отмена",
+        "admin_grant_success": "✅ Premium-доступ успешно выдан пользователю {name} (ID: {user_id}).",
+        "admin_grant_fail_id": "⚠️ Ошибка. Пользователь с ID <code>{user_id}</code> не найден.",
+        "admin_grant_fail_already_paid": "⚠️ Пользователь {name} (ID: {user_id}) уже имеет Premium-доступ.",
+        "admin_grant_usage": "⚠️ Неверный формат. Используйте: <code>/grant [ID_пользователя]</code>",
+        "user_grant_notification": "🎉 <b>Доступ активирован!</b>\n\nАдминистратор активировал ваш Premium-доступ. Поздравляем!\n\nНажмите /start, чтобы обновить клавиатуру.",
+        # --- ⭐️ КОНЕЦ v10.15 ---
+        
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ истекает менее чем через {hours} час(а). Не забудьте активировать подписку, чтобы не терять прогресс!",
-        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nДо возобновления демо-периода осталось **{hours} ч. {minutes} мин.**\n\nВы также можете активировать Premium-доступ прямо сейчас, нажав кнопку 'Хочу Premium'. 👇",
+        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nДо возобновления демо-периода осталось **{hours} ч. {minutes} мин.**\n\nВы также можете активировать Premium-доступ прямо сейчас, нажав кнопку '👑 Хочу Premium'. 👇",
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nВы можете активировать **еще один** пробный период ({demo_days} дня) или получить постоянный Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваши пробные периоды закончились.</b>\n\nДля возобновления доступа, пожалуйста, активируйте Premium-подписку. 👇",
-        "demo_awaiting_renewal": "Понял. Ваш демо-период возобновится через **{hours} ч. {minutes} мин.**\n\nВ режиме ожидания рассылки отключены, но вы можете активировать Premium в любой момент.", # ✅ НОВЫЙ КЛЮЧ
+        "demo_awaiting_renewal": "Понял. Ваш демо-период возобновится через **{hours} ч. {minutes} мин.**\n\nВ режиме ожидания рассылки отключены, но вы можете активировать Premium в любой момент.",
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
-        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите **245 грн** на эту Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека **в этот чат**. Админ увидит его и активирует ваш доступ вручную.",
+        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите **245 грн** на эту Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека нашему менеджеру: **@fotinia_admin**. Он увидит его и активирует ваш доступ вручную.",
         "pay_api_success_test": "✅ {name}, добро пожаловать в Premium! (Тест API)\nЯ буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение). Нажмите /start.",
         "share_text_template": "Посмотри, какой бот мне помогает двигаться к цели! @{bot_username}",
         "reaction_received": "Благодарю за твою реакцию, {name}!",
@@ -107,13 +217,13 @@ translations = {
         "list_error_index": "⚠️ Произошла ошибка при выборе элемента из списка '{title}'. Список может быть пуст.",
         "list_error_unexpected": "⚠️ Произошла непредвиденная ошибка при отправке '{title}'.",
         "list_error_data": "⚠️ Ошибка данных для '{title}'. Обратитесь к администратору.",
-        "challenge_already_issued": "⏳ Вы уже приняли челлендж на сегодня.",
+        "challenge_already_issued": "⏳ Вы уже приняли челленддж на сегодня.",
         "challenge_pending_acceptance": "🔥 У вас уже есть активный челлендж. Примите его или нажмите 'Новый' в сообщении выше.",
         "challenge_accepted_msg": "💪 <b>Челлендж принят:</b>\n\n<i>{challenge_text}</i>",
         "challenge_completed_msg": "✅ Отлично! Челлендж выполнен!",
         "challenge_completed_edit_err": "⚠️ Не удалось отредактировать сообщение о выполнении.",
         "challenge_new_day": "⚔️ <b>Челлендж дня:</b>\n{challenge_text}",
-        "challenge_choose_error": "⚠️ Ошибка при выборе челленджа. Список может быть пуст.",
+        "challenge_choose_error": "⚠️ Ошибка при выборе челленджа. Список может быть пустым.",
         "challenge_button_error": "⚠️ Произошла ошибка при формировании кнопок челленджа.",
         "challenge_unexpected_error": "⚠️ Произошла непредвиденная ошибка при отправке челленджа.",
         "challenge_accept_error": "⚠️ Произошла ошибка при принятии челленджа. Попробуйте запросить челлендж заново.",
@@ -125,7 +235,7 @@ translations = {
         "start_required": "Похоже, мы ещё не знакомы. Пожалуйста, нажмите /start, чтобы начать.",
         "admin_new_user": "🎉 Новый пользователь: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показать статистику",
-        "admin_bot_started": "🤖 Бот успешно запущен (v10.7 Ultimate Demo Logic)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v10.16.1 - Auto-TZ, Grant & Backup)",
         "admin_bot_stopping": "⏳ Бот останавливается...",
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
@@ -135,9 +245,9 @@ translations = {
         "btn_share": "💌 Поделиться",
         "btn_show_users": "📂 Смотреть users.json", "btn_stats": "📊 Статистика",
         "btn_reload_data": "🔄 Обновить",
-        "btn_pay_premium": "👑 Хочу Premium", # ✅ ИЗМЕНЕНО
-        "btn_pay_api_test_premium": "👑 Premium (API Тест)", # ✅ ИЗМЕНЕНО
-        "btn_want_demo": "🔄 Хочу демо", # ✅ ИЗМЕНЕНО
+        "btn_pay_premium": "👑 Хочу Premium",
+        "btn_pay_api_test_premium": "👑 Premium (API Тест)",
+        "btn_want_demo": "🔄 Хочу демо",
         "btn_challenge_accept": "✅ Принять", "btn_challenge_new": "🎲 Новый",
         "btn_challenge_complete": "✅ Выполнено",
         "title_motivation": "💪", "title_rhythm": "🎶 Ритм дня:", "title_rules": "📜 Правила Вселенной",
@@ -156,13 +266,29 @@ translations = {
         "welcome": "🌟 Привіт, {name}! Я бот Фотінія, твій особистий помічник із саморозвитку.\n\nЯ буду надсилати тобі повідомлення 4 рази на день, щоб допомогти тримати фокус. У тебе є ознайомчий період ({demo_days} дні), щоб спробувати всі функції. Почнемо! 👇",
         "welcome_return": "🌟 З поверненням, {name}! Радий знову тебе бачити. Твій {status_text} доступ активний. Використовуй кнопки нижче 👇",
         "welcome_renewed_demo": "🌟 {name}, з поверненням! У Вас новий демо-період на {demo_days} днів. Всі функції відновлено. Досягнуті раніше рівні скинуті. В добру путь! 👇",
+        
+        # --- ⭐️ v10.15: TIMEZONE И GRANT ПЕРЕВОДЫ ---
+        "welcome_timezone_note": "\n\nP.S. Ваш часовий пояс було автоматично встановлено: <code>{default_tz}</code>. Якщо він невірний, використовуйте команду /timezone, щоб його змінити.",
+        # "btn_settings": "⚙️ Налаштування", # Убрано
+        "timezone_command_text": "⚙️ <b>Налаштування часового поясу</b>\n\nВаш поточний пояс: <code>{user_tz}</code>\n\nЩоб змінити його, <b>надішліть свій часовий пояс</b> у форматі IANA (TZ Database).\n\nНаприклад:\n<code>Europe/Berlin</code>\n<code>Europe/Warsaw</code>\n<code>America/New_York</code>\n<code>Asia/Tbilisi</code>\n\nНадішліть /cancel для скасування.",
+        "timezone_set_success": "✅ Часовий пояс оновлено на <code>{new_tz}</code>.",
+        "timezone_set_error": "⚠️ Помилка. <code>{error_text}</code> - це невалідний часовий пояс. Спробуйте ще раз (наприклад, <code>Europe/Kiev</code>) або натисніть /cancel.",
+        "timezone_cancel": "✅ Налаштування скасовано. Ваш часовий пояс залишився: <code>{user_tz}</code>.",
+        "cmd_cancel": "Скасувати",
+        "admin_grant_success": "✅ Premium-доступ успішно видано користувачу {name} (ID: {user_id}).",
+        "admin_grant_fail_id": "⚠️ Помилка. Користувача з ID <code>{user_id}</code> не знайдено.",
+        "admin_grant_fail_already_paid": "⚠️ Користувач {name} (ID: {user_id}) вже має Premium-доступ.",
+        "admin_grant_usage": "⚠️ Невірний формат. Використовуйте: <code>/grant [ID_користувача]</code>",
+        "user_grant_notification": "🎉 <b>Доступ активовано!</b>\n\nАдміністратор активував ваш Premium-доступ. Вітаємо!\n\nНатисніть /start, щоб оновити клавіатуру.",
+        # --- ⭐️ КОНЕЦ v10.15 ---
+        
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ закінчується менш ніж за {hours} год. Не забудьте активувати підписку, щоб не втрачати прогрес!",
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nДо возобновления демо-периода осталось **{hours} год {minutes} хв.**\n\nАбо ви можете активувати Premium-доступ прямо зараз, натиснувши кнопку 'Оплатити'. 👇",
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати **ще один** пробний період ({demo_days} дні) або отримати постійний Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваші пробні періоди закінчилися.</b>\n\nДля відновлення доступу, будь ласка, активуйте Premium-підписку. 👇",
         "demo_awaiting_renewal": "Зрозумів. Ваш демо-період відновиться через **{hours} год {minutes} хв.**\n\nВ режимі очікування розсилки відключені, але ви можете активувати Premium у будь-який момент.",
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
-        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть **245 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека **в цей чат**. Адмін побачить його та активує ваш доступ вручну.",
+        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть **245 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека нашому менеджеру: **@fotinia_admin**. Він побачить його та активує ваш доступ вручную.",
         "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення). Натисніть /start.",
         "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}",
         "reaction_received": "Дякую за твою реакцію, {name}!",
@@ -199,7 +325,7 @@ translations = {
         "start_required": "Схоже, ми ще не знайомі. Будь ласка, натисніть /start, щоб почати.",
         "admin_new_user": "🎉 Новий користувач: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Показати статистику",
-        "admin_bot_started": "🤖 Бот успішно запущений (v10.7 Ultimate Demo Logic)",
+        "admin_bot_started": "🤖 Бот успішно запущен (v10.16.1 - Auto-TZ, Grant & Backup)",
         "admin_bot_stopping": "⏳ Бот зупиняється...",
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
@@ -230,13 +356,29 @@ translations = {
         "welcome": "🌟 Hello, {name}! I am Fotinia Bot, your personal self-development assistant.\n\nI will send you messages 4 times a day to help you stay focused. You have a trial period ({demo_days} days) to try all features. Let's start! 👇",
         "welcome_return": "🌟 Welcome back, {name}! Glad to see you again. Your {status_text} access is active. Use the buttons below 👇",
         "welcome_renewed_demo": "🌟 {name}, welcome back! You have a new demo period for {demo_days} days. All functions are restored. Previously achieved levels are reset. Good luck! 👇",
+        
+        # --- ⭐️ v10.15: TIMEZONE И GRANT ПЕРЕВОДЫ ---
+        "welcome_timezone_note": "\n\nP.S. Your timezone was automatically set to <code>{default_tz}</code>. If this is incorrect, please use the /timezone command to change it.",
+        # "btn_settings": "⚙️ Settings", # Убрано
+        "timezone_command_text": "⚙️ <b>Timezone Settings</b>\n\nYour current timezone: <code>{user_tz}</code>\n\nTo change it, <b>please send your timezone</b> in IANA (TZ Database) format.\n\nExamples:\n<code>Europe/Berlin</code>\n<code>Europe/Warsaw</code>\n<code>America/New_York</code>\n<code>Asia/Tbilisi</code>\n\nSend /cancel to exit.",
+        "timezone_set_success": "✅ Timezone updated to <code>{new_tz}</code>.",
+        "timezone_set_error": "⚠️ Error. <code>{error_text}</code> is not a valid timezone. Please try again (e.g., <code>Europe/London</code>) or send /cancel.",
+        "timezone_cancel": "✅ Setup cancelled. Your timezone remains: <code>{user_tz}</code>.",
+        "cmd_cancel": "Cancel",
+        "admin_grant_success": "✅ Premium access successfully granted to {name} (ID: {user_id}).",
+        "admin_grant_fail_id": "⚠️ Error. User with ID <code>{user_id}</code> not found.",
+        "admin_grant_fail_already_paid": "⚠️ User {name} (ID: {user_id}) already has Premium access.",
+        "admin_grant_usage": "⚠️ Invalid format. Use: <code>/grant [USER_ID]</code>",
+        "user_grant_notification": "🎉 <b>Access Activated!</b>\n\nThe administrator has activated your Premium access. Congratulations!\n\nPlease press /start to refresh your keyboard.",
+        # --- ⭐️ КОНЕЦ v10.15 ---
+        
         "demo_expiring_soon_h": "🔒 {name}, your demo access expires in less than {hours} hour(s). Don't forget to activate your subscription to keep your progress!",
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can reactivate a new demo period in **{hours}h {minutes}m**.\n\nOr you can activate Premium access right now by pressing 'Pay'. 👇",
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can activate **one more** trial period ({demo_days} days) or get permanent Premium access.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Your trial periods have ended.</b>\n\nTo resume access, please activate your Premium subscription. 👇",
         "demo_awaiting_renewal": "Got it. Your demo period will resume in **{hours}h {minutes}m**.\n\nBroadcasts are disabled in standby mode, but you can activate Premium at any time.",
         "pay_info": "💳 For full access, please contact the administrator.",
-        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message).\n\nTo activate, please transfer **245 UAH** to this Monobank 'Banka' (jar):\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt **to this chat**. The admin will see it and activate your access manually.",
+        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message).\n\nTo activate, please transfer **245 UAH** to this Monobank 'Banka' (jar):\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt to our manager: **@fotinia_admin**. They will see it and activate your access manually.",
         "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
         "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}",
         "reaction_received": "Thank you for your reaction, {name}!",
@@ -273,7 +415,7 @@ translations = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v10.7 Ultimate Demo Logic)",
+        "admin_bot_started": "🤖 Bot successfully launched (v10.16.1 - Auto-TZ, Grant & Backup)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -288,7 +430,7 @@ translations = {
         "btn_want_demo": "🔄 Want Demo",
         "btn_challenge_accept": "✅ Accept", "btn_challenge_new": "🎲 New",
         "btn_challenge_complete": "✅ Done",
-        "title_motivation": "💪", "title_rhythm": "🎶 Rhythm of the Day:", "title_rules": "📜 Rules of the Universe",
+        "title_motivation": "💪", "title_rhythm": "🎶 Rhythm of theDay:", "title_rules": "📜 Rules of the Universe",
         "title_rules_daily": "📜 <b>{title} ({count}/{limit}):</b>",
         "rules_limit_reached": "That's all the laws for today. You will learn new ones tomorrow! 🌙",
         "profile_status_total": "Total",
@@ -301,6 +443,31 @@ translations = {
     }
 }
 
+# --- 🐞 НОВЫЕ ХЕЛПЕРЫ v10.11 ---
+def get_demo_days(chat_id: int) -> int:
+    """Возвращает длительность демо-периода в днях в зависимости от роли."""
+    if chat_id in SIMULATOR_USER_IDS:
+        return 2  # 2 дня для симулятора
+    if chat_id in TESTER_USER_IDS:
+        return TESTER_DEMO_DAYS  # 1 день для тестера
+    return REGULAR_DEMO_DAYS  # 5 дней для обычных
+
+def get_cooldown_days(chat_id: int) -> int:
+    """Возвращает длительность кулдауна в днях в зависимости от роли."""
+    if chat_id in SIMULATOR_USER_IDS:
+        return 1  # 1 день для симулятора
+    if chat_id in TESTER_USER_IDS:
+        return TESTER_COOLDOWN_DAYS  # 1 день для тестера
+    return REGULAR_COOLDOWN_DAYS  # 1 день для обычных
+
+def get_max_demo_cycles(chat_id: int) -> int:
+    """Возвращает кол-во демо-циклов в зависимости от роли."""
+    if chat_id in SIMULATOR_USER_IDS:
+        return 2  # 2 цикла для симулятора
+    if chat_id in TESTER_USER_IDS:
+        return 999  # 999 циклов для тестера (почти бесконечно)
+    return MAX_DEMO_CYCLES  # 2 цикла для обычных
+# --- ---------------------- ---
 
 # --- ⌨️ КНОПКИ (з урахуванням локалізації) ---
 def get_btn_text(key: str, lang: str = DEFAULT_LANG) -> str:
@@ -311,18 +478,19 @@ BTN_RHYTHM = "btn_rhythm"
 BTN_CHALLENGE = "btn_challenge"
 BTN_RULES = "btn_rules"
 BTN_PROFILE = "btn_profile"
+# BTN_SETTINGS = "btn_settings" # ⭐️ v10.15: Убрано
 BTN_SHOW_USERS = "btn_show_users"
 BTN_STATS = "btn_stats"
 BTN_RELOAD_DATA = "btn_reload_data"
 BTN_PAY_PREMIUM = "btn_pay_premium"
-BTN_PAY_API_TEST_PREMIUM = "btn_pay_api_test_premium" 
+BTN_PAY_API_TEST_PREMIUM = "btn_pay_api_test_premium"
 BTN_WANT_DEMO = "btn_want_demo"
 
 def get_main_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
         [get_btn_text('motivate', lang), get_btn_text('rhythm', lang)],
         [get_btn_text('challenge', lang), get_btn_text('rules', lang)],
-        [get_btn_text('profile', lang)]
+        [get_btn_text('profile', lang)] # ⭐️ v10.15: Убрана кнопка
     ]
     return ReplyKeyboardMarkup(layout, resize_keyboard=True)
 
@@ -330,7 +498,8 @@ def get_admin_keyboard(lang: str = DEFAULT_LANG) -> ReplyKeyboardMarkup:
     layout = [
         [get_btn_text('motivate', lang), get_btn_text('rhythm', lang)],
         [get_btn_text('challenge', lang), get_btn_text('rules', lang)],
-        [get_btn_text('show_users', lang), get_btn_text('stats', lang)]
+        [get_btn_text('show_users', lang), get_btn_text('stats', lang)],
+        [get_btn_text('profile', lang)] # ⭐️ v10.15: Убрана кнопка
     ]
     return ReplyKeyboardMarkup(layout, resize_keyboard=True)
 
@@ -346,21 +515,19 @@ def get_payment_keyboard(lang: str = DEFAULT_LANG, is_test_user: bool = False, s
         
     return ReplyKeyboardMarkup([buttons], resize_keyboard=True)
 
-# ✅ НОВАЯ КЛАВИАТУРА: Для "неактивных" кнопок в кулдауне
 def get_cooldown_keyboard(lang: str = DEFAULT_LANG, is_test_user: bool = False) -> ReplyKeyboardMarkup:
-    # Главная клавиатура + кнопка "Хочу Premium"
     layout = [
         [get_btn_text('motivate', lang), get_btn_text('rhythm', lang)],
         [get_btn_text('challenge', lang), get_btn_text('rules', lang)],
-        [get_btn_text('profile', lang)]
+        [get_btn_text('profile', lang)] # ⭐️ v10.15: Убрана кнопка
     ]
+    
     if is_test_user:
         layout.append([get_btn_text('pay_api_test_premium', lang)])
     else:
         layout.append([get_btn_text('pay_premium', lang)])
         
     return ReplyKeyboardMarkup(layout, resize_keyboard=True)
-
 
 def get_reply_keyboard_for_user(chat_id: int, lang: str, user_data: Dict[str, Any]) -> ReplyKeyboardMarkup:
     """Определяет, какую клавиатуру показать пользователю."""
@@ -371,37 +538,37 @@ def get_reply_keyboard_for_user(chat_id: int, lang: str, user_data: Dict[str, An
         return get_main_keyboard(lang)
     
     is_test_user = chat_id in TESTER_USER_IDS
-
+    
     if is_demo_expired(user_data):
         demo_count = user_data.get("demo_count", 1)
         
-        # ✅ НОВАЯ ЛОГИКА: Проверка статуса "awaiting_renewal"
         if user_data.get("status") == "awaiting_renewal":
             return get_cooldown_keyboard(lang, is_test_user)
         
         try:
             now_utc = datetime.now(ZoneInfo("UTC"))
             exp_dt = datetime.fromisoformat(user_data.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
-            cooldown_days = TESTER_COOLDOWN_DAYS if is_test_user else REGULAR_COOLDOWN_DAYS
+            
+            # 🐞 v10.11: Используем хелперы
+            cooldown_days = get_cooldown_days(chat_id)
+            max_cycles = get_max_demo_cycles(chat_id)
             next_demo_dt = exp_dt + timedelta(days=cooldown_days)
             
             if now_utc >= next_demo_dt:
-                # Кулдаун прошел, показываем выбор
-                show_demo_button = (demo_count < MAX_DEMO_CYCLES)
+                show_demo_button = (demo_count < max_cycles)
                 return get_payment_keyboard(lang, is_test_user, show_new_demo=show_demo_button)
             else:
-                # Еще в кулдауне, показываем выбор
-                show_demo_button = (demo_count < MAX_DEMO_CYCLES)
+                show_demo_button = (demo_count < max_cycles)
                 return get_payment_keyboard(lang, is_test_user, show_new_demo=show_demo_button)
+                
         except Exception:
-             # Ошибка парсинга даты
-             return get_payment_keyboard(lang, is_test_user, show_new_demo=(demo_count < MAX_DEMO_CYCLES))
+            max_cycles = get_max_demo_cycles(chat_id)
+            return get_payment_keyboard(lang, is_test_user, show_new_demo=(demo_count < max_cycles))
     
     return get_main_keyboard(lang)
 
-
 USERS_FILE_LOCK = asyncio.Lock()
-RULES_LOCK = asyncio.Lock() 
+RULES_LOCK = asyncio.Lock()
 
 # ----------------- РАБОТА С ДАННЫМИ -----------------
 def load_json_data(filepath: Path, default_factory=list) -> Any:
@@ -422,12 +589,12 @@ def load_json_data(filepath: Path, default_factory=list) -> Any:
 
 def load_all_challenges_into_cache(app: Application):
     """Загружает челленджи из всех файлов challenges*.json в папке данных."""
-    challenges = {} 
+    challenges = {}
     challenge_files = list(DATA_DIR.glob("challenges*.json"))
     logger.info(f"Найдено {len(challenge_files)} файлов с челленджами: {[p.name for p in challenge_files]}")
     
     for p in challenge_files:
-        data = load_json_data(p, default_factory={}) 
+        data = load_json_data(p, default_factory={})
         if not isinstance(data, dict):
             logger.error(f" -> Ошибка: Файл {p.name} содержит не словарь, а {type(data).__name__}. Пропущено.")
             continue
@@ -445,7 +612,6 @@ def load_all_challenges_into_cache(app: Application):
     total_count = sum(len(v) for v in challenges.values())
     logger.info(f"✅ Всего загружено челленджей: {total_count} (в {len(challenges)} языках)")
 
-
 def save_users_sync(users_data: dict) -> None:
     try:
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=DATA_DIR) as tmp:
@@ -461,26 +627,27 @@ async def save_users(context: ContextTypes.DEFAULT_TYPE, users_data: dict) -> No
 def setup_initial_files():
     logger.info(f"Синхронизация файлов в persistent-директории '{DATA_DIR}'...")
     DATA_DIR.mkdir(exist_ok=True)
-
+    
     source_data_dir = Path(__file__).parent / "data_initial"
+    
     if not source_data_dir.exists():
         logger.warning(f"⚠️ Папка 'data_initial' не найдена. Невозможно скопировать исходные данные.")
         all_expected_files = list(FILE_MAPPING.values()) + ["challenges.json", USERS_FILE.name]
         for filename in all_expected_files:
-             filepath = DATA_DIR / filename
-             if not filepath.exists():
-                  default_content = {} if filename == USERS_FILE.name else []
-                  with open(filepath, "w", encoding="utf-8") as f: json.dump(default_content, f)
-                  logger.warning(f"  -> ⚠️ Создан пустой файл '{filename}'.")
+            filepath = DATA_DIR / filename
+            if not filepath.exists():
+                default_content = {} if filename == USERS_FILE.name else []
+                with open(filepath, "w", encoding="utf-8") as f: json.dump(default_content, f)
+                logger.warning(f"  -> ⚠️ Создан пустой файл '{filename}'.")
         return
 
     copied_count = 0
     for filename in os.listdir(source_data_dir):
         source_path = source_data_dir / filename
         dest_path = DATA_DIR / filename
-
+        
         if not source_path.is_file(): continue
-
+        
         try:
             with open(source_path, "r", encoding="utf-8") as f:
                 source_content = f.read().strip()
@@ -491,6 +658,7 @@ def setup_initial_files():
 
         should_copy = False
         reason = "нет"
+        
         if not dest_path.exists():
             should_copy = True
             reason = "не существует"
@@ -500,7 +668,7 @@ def setup_initial_files():
                 source_mtime = source_path.stat().st_mtime
                 dest_mtime = dest_path.stat().st_mtime
                 logger.debug(f"Comparing {filename}: Dest size={dest_size}, Source mtime={source_mtime}, Dest mtime={dest_mtime}")
-
+                
                 if dest_size < 10 and filename != USERS_FILE.name :
                     should_copy = True
                     reason = "пустой"
@@ -511,7 +679,7 @@ def setup_initial_files():
                 logger.error(f"Не удалось получить информацию о файле {dest_path}: {e}")
                 should_copy = True
                 reason = "ошибка доступа"
-
+                
         if should_copy:
             try:
                 shutil.copy2(source_path, dest_path)
@@ -519,18 +687,66 @@ def setup_initial_files():
                 copied_count += 1
             except Exception as e:
                 logger.error(f"  -> ❌ Не удалось скопировать '{filename}': {e}")
-
+                
     if not USERS_FILE.exists():
         with open(USERS_FILE, "w", encoding="utf-8") as f: json.dump({}, f)
         logger.warning(f"  -> ⚠️ Файл '{USERS_FILE.name}' не найден, создан пустой.")
-
+        
     logger.info(f"✅ Синхронизация завершена. Скопировано/обновлено файлов: {copied_count}.")
 
-
 # ----------------- УТИЛИТЫ -----------------
-def get_user_lang(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> str:
-    user_data = context.application.bot_data.get("users", {}).get(str(chat_id), {})
+
+# --- ⭐️ ИСПРАВЛЕНИЕ v10.16.1 ⭐️ ---
+def get_user_lang(context_or_app: Any, chat_id: int) -> str:
+    """
+    Получает язык пользователя. 
+    Принимает 'context' (из хендлера) или 'application' (из lifespan).
+    """
+    bot_data = {}
+    if hasattr(context_or_app, 'bot_data'):
+        # Это объект 'application'
+        bot_data = context_or_app.bot_data
+    elif hasattr(context_or_app, 'application') and hasattr(context_or_app.application, 'bot_data'):
+        # Это объект 'context'
+        bot_data = context_or_app.application.bot_data
+    else:
+        logger.error(f"get_user_lang: не удалось найти bot_data в {type(context_or_app)}")
+        return DEFAULT_LANG
+
+    user_data = bot_data.get("users", {}).get(str(chat_id), {})
     return user_data.get("language", DEFAULT_LANG)
+# --- ⭐️ КОНЕЦ ИСПРАВЛЕНИЯ v10.16.1 ⭐️ ---
+
+
+# --- ⭐️ НОВАЯ ФУНКЦИЯ БЭКАПА (v10.16) ⭐️ ---
+def backup():
+    """Создает бэкап users.json в папке /app/data/backups"""
+    # Пути определяются из переменных окружения, которые уже есть
+    DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
+    USERS_FILE = DATA_DIR / "users.json"
+    BACKUP_DIR = DATA_DIR / "backups" # <-- Бэкапы будут лежать ВНУТРИ /app/data
+    
+    logger.info(f"[Backup Service] Запускаю проверку бэкапа для {USERS_FILE}...")
+    
+    if not USERS_FILE.exists():
+        logger.warning(f"[Backup Service] Файл {USERS_FILE} не найден. Бэкап пропущен.")
+        return
+        
+    if USERS_FILE.stat().st_size < 10:
+         logger.warning(f"[Backup Service] Файл {USERS_FILE} слишком мал (< 10 байт). Бэкап пропущен.")
+         return
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_path = BACKUP_DIR / f"users_{timestamp}.json"
+    
+    try:
+        # Папка /app/data/backups будет создана автоматически
+        BACKUP_DIR.mkdir(exist_ok=True) 
+        shutil.copy(USERS_FILE, backup_path)
+        logger.info(f"[Backup Service] ✅ Бэкап успешно создан: {backup_path}")
+    except Exception as e:
+        logger.error(f"[Backup Service] ❌ НЕ УДАЛОСЬ создать бэкап: {e}")
+# --- ⭐️ КОНЕЦ НОВОЙ ФУНКЦИИ ⭐️ ---
 
 def get_text(key: str, context: ContextTypes.DEFAULT_TYPE | None = None, chat_id: int | None = None, lang: str | None = None, **kwargs) -> str:
     effective_lang = lang
@@ -538,11 +754,13 @@ def get_text(key: str, context: ContextTypes.DEFAULT_TYPE | None = None, chat_id
         effective_lang = get_user_lang(context, chat_id)
     if not effective_lang:
         effective_lang = DEFAULT_LANG
+        
     lang_dict = translations.get(effective_lang, translations[DEFAULT_LANG])
     text = lang_dict.get(key, key)
+    
     try:
         if 'name' not in kwargs and '{name}' in text:
-             kwargs['name'] = ''
+            kwargs['name'] = ''
         if key == 'admin_new_user' and 'user_id' not in kwargs:
             kwargs['user_id'] = 'N/A'
         return text.format(**kwargs)
@@ -589,7 +807,7 @@ def get_broadcast_keyboard(context: ContextTypes.DEFAULT_TYPE, lang: str) -> Inl
     bot_link = f"https://t.me/{bot_username}"
     encoded_text = urllib.parse.quote_plus(share_text)
     share_url = f"https://t.me/share/url?url={bot_link}&text={encoded_text}"
-
+    
     keyboard = [
         [
             InlineKeyboardButton("👍", callback_data="reaction:like"),
@@ -612,34 +830,53 @@ async def centralized_broadcast_job(context: ContextTypes.DEFAULT_TYPE):
     for hour, key in schedules:
         data = context.application.bot_data.get(key, {})
         phrases_by_lang = data if isinstance(data, dict) else {DEFAULT_LANG: data if isinstance(data, list) else []}
-
+        
         for chat_id_str, user_data in users_data.items():
-            chat_id = int(chat_id_str)
-            is_test_user = chat_id in TESTER_USER_IDS
-            is_user_admin = is_admin(chat_id)
+            
+            try:
+                # 🐞 v10.13: Проверяем ID-ключ на число
+                chat_id = int(chat_id_str)
+            except ValueError:
+                logger.warning(f"Skipping non-int key '{chat_id_str}' in broadcast job.")
+                continue
+                
+            # 🐞 v10.11: Админ и тестеры получают рассылку всегда,
+            # даже если is_demo_expired() (что не должно случиться для них в /stats)
+            is_special_user = chat_id in TESTER_USER_IDS or is_admin(chat_id)
             
             if not user_data.get("active"):
                 continue
                 
-            if is_demo_expired(user_data) and not user_data.get("is_paid") and not is_user_admin and not is_test_user:
+            if is_demo_expired(user_data) and not user_data.get("is_paid") and not is_special_user:
                 logger.debug(f"Skipping broadcast for {chat_id_str}, demo expired.")
                 continue
             
             try:
-                user_tz = ZoneInfo(user_data.get("timezone", DEFAULT_TZ.key))
+                # ⭐️ v10.15: Используем часовой пояс пользователя (который он мог изменить)
+                user_tz_key = user_data.get("timezone", DEFAULT_TZ_KEY)
+                user_tz = ZoneInfo(user_tz_key)
                 user_lang = user_data.get("language", DEFAULT_LANG)
                 
                 lang_specific_phrases = phrases_by_lang.get(user_lang, phrases_by_lang.get(DEFAULT_LANG, []))
                 
                 if not lang_specific_phrases:
-                     continue
+                    continue
 
                 if now_utc.astimezone(user_tz).hour == hour:
-                    logger.debug(f"Sending '{key}' to user {chat_id_str} at their local {hour}:00")
+                    logger.debug(f"Sending '{key}' to user {chat_id_str} at their local {hour}:00 (TZ: {user_tz_key})")
                     phrase = random.choice(lang_specific_phrases).format(name=user_data.get("name", "друг"))
                     reaction_keyboard = get_broadcast_keyboard(context, user_lang)
                     tasks.append(safe_send(context, chat_id, phrase, reply_markup=reaction_keyboard))
-            except Exception as e: logger.error(f"Ошибка в планировщике (broadcast) для {chat_id_str}: {e}")
+                    
+            except ZoneInfoNotFoundError:
+                logger.warning(f"Invalid timezone '{user_tz_key}' for user {chat_id_str}. Defaulting to Kiev for this check.")
+                user_data["timezone"] = DEFAULT_TZ_KEY # Исправляем невалидный TZ
+                if now_utc.astimezone(DEFAULT_TZ).hour == hour:
+                    phrase = random.choice(lang_specific_phrases).format(name=user_data.get("name", "друг"))
+                    reaction_keyboard = get_broadcast_keyboard(context, user_lang)
+                    tasks.append(safe_send(context, chat_id, phrase, reply_markup=reaction_keyboard))
+            except Exception as e: 
+                logger.error(f"Ошибка в планировщике (broadcast) для {chat_id_str}: {e}")
     
     if tasks:
         results = await asyncio.gather(*tasks)
@@ -654,7 +891,17 @@ async def check_demo_expiry_job(context: ContextTypes.DEFAULT_TYPE):
     users_to_save = False
     
     for chat_id_str, user_data in users_data.items():
-        chat_id = int(chat_id_str)
+        try:
+            # 🐞 v10.13: Проверяем ID-ключ на число
+            chat_id = int(chat_id_str)
+        except ValueError:
+            logger.warning(f"Skipping non-int key '{chat_id_str}' in demo expiry job.")
+            continue
+        
+        # 🐞 v10.11: Игнорируем Админа и Тестеров в этой проверке
+        if chat_id == ADMIN_CHAT_ID or chat_id in TESTER_USER_IDS:
+            continue
+            
         if user_data.get("is_paid") or not user_data.get("active") or user_data.get("sent_expiry_warning"):
             continue
             
@@ -666,11 +913,15 @@ async def check_demo_expiry_job(context: ContextTypes.DEFAULT_TYPE):
             exp_dt = datetime.fromisoformat(demo_exp_str).replace(tzinfo=ZoneInfo("UTC"))
             time_left = exp_dt - now_utc
             
-            is_test_user = (chat_id in TESTER_USER_IDS)
-            warning_hours = 2 if is_test_user else 24
+            # 🐞 v10.11: Используем хелпер (хотя для симулятора будет 24ч)
+            is_simulator = chat_id in SIMULATOR_USER_IDS
+            warning_hours = 24 # Стандарт - 24 часа
             
+            # Для симулятора (2 дня демо) и обычных (5 дней демо) 24 часа - ок.
+            # Если бы у симулятора было 1-дневное демо, нужна была бы другая логика.
+                
             if timedelta(hours=0) < time_left <= timedelta(hours=warning_hours):
-                logger.info(f"Demo expiring soon for user {chat_id} (Tester: {is_test_user}). Sending warning.")
+                logger.info(f"Demo expiring soon for user {chat_id} (Simulator: {is_simulator}). Sending warning.")
                 lang = user_data.get("language", DEFAULT_LANG)
                 await safe_send(context, chat_id, get_text('demo_expiring_soon_h', lang=lang, name=user_data.get("name", "друг"), hours=warning_hours))
                 
@@ -682,8 +933,8 @@ async def check_demo_expiry_job(context: ContextTypes.DEFAULT_TYPE):
 
     if users_to_save:
         await save_users(context, users_data)
+        
     logger.debug("check_demo_expiry_job finished.")
-
 
 # ----------------- 🖥️ ХЕНДЛЕРЫ -----------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -692,10 +943,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users_data = context.application.bot_data.get("users", {})
     user_entry = users_data.get(user_id_str)
     now_utc = datetime.now(ZoneInfo("UTC"))
-
     is_test_user = (chat_id in TESTER_USER_IDS)
     is_new_user = (user_entry is None)
     
+    # 🐞 v10.11: Тестеры всегда проходят флоу "нового" пользователя,
+    # чтобы они могли легко менять язык и сбрасывать демо
     if is_new_user or is_test_user:
         logger.info(f"Поток нового пользователя для {chat_id} (Новый: {is_new_user}, Тестер: {is_test_user})")
         keyboard = [
@@ -713,8 +965,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Демо истек для вернувшегося пользователя {chat_id}.")
             
             demo_count = user_entry.get("demo_count", 1)
-            cooldown_days = REGULAR_COOLDOWN_DAYS
-            demo_days = REGULAR_DEMO_DAYS
+            # 🐞 v10.11: Используем хелперы
+            cooldown_days = get_cooldown_days(chat_id)
+            demo_days = get_demo_days(chat_id)
+            max_cycles = get_max_demo_cycles(chat_id)
             
             try:
                 demo_exp_date = datetime.fromisoformat(user_entry.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
@@ -730,7 +984,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=True))
                 
                 else:
-                    if demo_count < MAX_DEMO_CYCLES:
+                    if demo_count < max_cycles:
                         logger.info(f"Кулдаун для {chat_id} прошел. Предлагаем 2-е демо (счетчик: {demo_count}).")
                         await safe_send(context, chat_id, 
                                         get_text('demo_expired_choice', lang=user_lang, name=user_name, demo_days=demo_days),
@@ -740,12 +994,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await safe_send(context, chat_id, 
                                         get_text('demo_expired_final', lang=user_lang, name=user_name),
                                         reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=False))
-
             except (ValueError, TypeError):
                 logger.error(f"Ошибка парсинга demo_expiration для {chat_id}. Показываем опцию оплаты.")
                 await safe_send(context, chat_id, 
                                 get_text('demo_expired_choice', lang=user_lang, name=user_name, demo_days=demo_days), 
-                                reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=(demo_count < MAX_DEMO_CYCLES)))
+                                reply_markup=get_payment_keyboard(lang=user_lang, is_test_user=is_test_user, show_new_demo=(demo_count < max_cycles)))
         
         else:
             status_text_key = 'status_premium' if user_entry.get("is_paid") else 'status_demo'
@@ -753,7 +1006,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.debug(f"Вернувшийся пользователь {chat_id} с активным статусом: {status_text}.")
             markup = get_reply_keyboard_for_user(chat_id, user_lang, user_entry)
             await safe_send(context, chat_id, get_text('welcome_return', lang=user_lang, name=user_name, status_text=status_text), reply_markup=markup)
-
 
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_lang(context, update.effective_chat.id)
@@ -772,10 +1024,103 @@ async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
     bot_username = context.bot.username or BOT_USERNAME
-    share_text = get_text('share_message', lang=lang, bot_username=bot_username)
+    # 🐞 FIX: Такой строки перевода ('share_message') нет, используем 'share_text_template'
+    share_text = get_text('share_text_template', lang=lang, bot_username=bot_username)
     
     await safe_send(context, chat_id, share_text)
 
+# --- ⭐️ v10.15: КОМАНДЫ TIMEZONE И GRANT ---
+async def timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup = None):
+    """(v10.15) Начинает процесс смены часового пояса."""
+    chat_id = update.effective_chat.id
+    lang = get_user_lang(context, chat_id)
+    user_data = context.application.bot_data.get("users", {}).get(str(chat_id))
+    
+    if not user_data:
+        await update.message.reply_text(get_text('start_required', lang=lang))
+        return
+        
+    # Устанавливаем статус, чтобы main_message_handler мог поймать следующий ответ
+    user_data["status"] = "awaiting_timezone"
+    await save_users(context, context.application.bot_data["users"])
+    
+    current_tz = user_data.get("timezone", DEFAULT_TZ_KEY)
+    
+    # Отправляем инструкцию
+    await update.message.reply_text(
+        get_text('timezone_command_text', lang=lang, user_tz=current_tz),
+        parse_mode=ParseMode.HTML
+    )
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """(v10.15) Отменяет текущее действие, например, ввод часового пояса."""
+    chat_id = update.effective_chat.id
+    lang = get_user_lang(context, chat_id)
+    user_data = context.application.bot_data.get("users", {}).get(str(chat_id))
+    
+    if not user_data:
+        return
+        
+    current_tz = user_data.get("timezone", DEFAULT_TZ_KEY)
+    
+    if user_data.get("status") == "awaiting_timezone":
+        # Сбрасываем статус (неважно, какой он был до этого, /start все равно вернет нужную клаву)
+        user_data["status"] = "active_demo" 
+        await save_users(context, context.application.bot_data["users"])
+        markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
+        
+        await update.message.reply_text(
+            get_text('timezone_cancel', lang=lang, user_tz=current_tz),
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup
+        )
+
+async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """(v10.15) Админ-команда для выдачи Premium-доступа."""
+    chat_id = update.effective_chat.id
+    lang = get_user_lang(context, chat_id) # Язык админа
+    
+    if not is_admin(chat_id):
+        logger.warning(f"НЕ-АДМИН {chat_id} попытался использовать /grant")
+        return
+
+    if not context.args:
+        await safe_send(context, chat_id, get_text('admin_grant_usage', lang=lang))
+        return
+
+    try:
+        target_id_str = context.args[0]
+        target_id_int = int(target_id_str)
+    except (ValueError, IndexError):
+        await safe_send(context, chat_id, get_text('admin_grant_usage', lang=lang))
+        return
+
+    users_data = context.application.bot_data["users"]
+    target_user_data = users_data.get(target_id_str)
+
+    if not target_user_data:
+        await safe_send(context, chat_id, get_text('admin_grant_fail_id', lang=lang, user_id=target_id_str))
+        return
+    
+    if target_user_data.get("is_paid"):
+        await safe_send(context, chat_id, get_text('admin_grant_fail_already_paid', lang=lang, name=target_user_data.get('name', ''), user_id=target_id_str))
+        return
+    
+    # Активируем Premium
+    target_user_data["is_paid"] = True
+    target_user_data["status"] = "active_paid" # Меняем статус
+    target_user_data["active"] = True # На всякий случай, если был неактивен
+    await save_users(context, users_data)
+    
+    # 1. Уведомляем админа
+    await safe_send(context, chat_id, get_text('admin_grant_success', lang=lang, name=target_user_data.get('name', ''), user_id=target_id_str))
+    
+    # 2. Уведомляем пользователя
+    target_lang = target_user_data.get("language", DEFAULT_LANG)
+    await safe_send(context, target_id_int, get_text('user_grant_notification', lang=target_lang))
+    
+    logger.info(f"Админ {chat_id} выдал Premium пользователю {target_id_str}")
+# --- ⭐️ КОНЕЦ v10.15 ---
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
     chat_id = update.effective_chat.id
@@ -802,7 +1147,6 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
             
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
-
 async def send_from_list(update: Update, context: ContextTypes.DEFAULT_TYPE, key: str, title_key: str, markup: ReplyKeyboardMarkup):
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
@@ -810,7 +1154,6 @@ async def send_from_list(update: Update, context: ContextTypes.DEFAULT_TYPE, key
     
     data = context.application.bot_data.get(key, {})
     item_list = data.get(lang, data.get(DEFAULT_LANG, [])) if isinstance(data, dict) else data if isinstance(data, list) else []
-
     logger.debug(f"Attempting to send item from list '{key}' for lang '{lang}'. Found {len(item_list)} items.")
     
     if not item_list:
@@ -818,14 +1161,16 @@ async def send_from_list(update: Update, context: ContextTypes.DEFAULT_TYPE, key
         return
         
     user_name = context.application.bot_data["users"].get(str(chat_id), {}).get("name", "друг")
+    
     try:
         if not isinstance(item_list, list):
             logger.error(f"Data for key '{key}/{lang}' is not a list, but {type(item_list).__name__}.")
             await safe_send(context, chat_id, get_text('list_error_data', lang=lang, title=title), reply_markup=markup)
             return
-
+            
         item = random.choice(item_list).format(name=user_name)
         await update.message.reply_text(f"<b>{title}</b>\n{item}", parse_mode=ParseMode.HTML, reply_markup=markup)
+        
     except IndexError:
          await safe_send(context, chat_id, get_text('list_error_index', lang=lang, title=title), reply_markup=markup)
          logger.error(f"IndexError when choosing from list '{key}/{lang}'. List content: {item_list}")
@@ -846,10 +1191,11 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
     async with RULES_LOCK:
         try:
             user_data = context.application.bot_data["users"].get(str(chat_id), {})
-            user_tz = ZoneInfo(user_data.get("timezone", DEFAULT_TZ.key))
+            # ⭐️ v10.15: Используем часовой пояс пользователя
+            user_tz_key = user_data.get("timezone", DEFAULT_TZ_KEY)
+            user_tz = ZoneInfo(user_tz_key)
             today_iso = datetime.now(user_tz).date().isoformat()
-            is_test_user = chat_id in TESTER_USER_IDS
-
+            
             last_rules_date = user_data.get("last_rules_date")
             rules_shown_count = user_data.get("rules_shown_count", 0)
 
@@ -859,7 +1205,6 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
                 user_data["rules_shown_count"] = 0
                 rules_shown_count = 0
 
-            # ✅ ИСПРАВЛЕНО: Лимит теперь работает для ВСЕХ
             if rules_shown_count >= RULES_PER_DAY_LIMIT:
                 logger.debug(f"User {chat_id} already received {RULES_PER_DAY_LIMIT} rules today.")
                 await safe_send(context, chat_id, get_text('rules_limit_reached', lang=lang), reply_markup=markup)
@@ -868,7 +1213,7 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
             data = context.application.bot_data.get("rules", {})
             item_list = data.get(lang, data.get(DEFAULT_LANG, [])) if isinstance(data, dict) else data if isinstance(data, list) else []
             logger.debug(f"Attempting to send rule {rules_shown_count + 1}/{RULES_PER_DAY_LIMIT} for lang '{lang}'. Found {len(item_list)} items.")
-
+            
             if not item_list:
                 await safe_send(context, chat_id, get_text('list_empty', lang=lang, title=get_text('title_rules', lang=lang)), reply_markup=markup)
                 return
@@ -880,7 +1225,7 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
                 logger.warning(f"User {chat_id} has seen all rules, or list is smaller than limit. Resetting seen list.")
                 available_rules = item_list
                 shown_today_indices = []
-
+                
             rule = random.choice(available_rules)
             rule_index = item_list.index(rule)
             
@@ -891,26 +1236,39 @@ async def send_rules(update: Update, context: ContextTypes.DEFAULT_TYPE, markup:
             user_data["rules_shown_count"] = rules_shown_count
             shown_today_indices.append(rule_index)
             user_data["rules_indices_today"] = shown_today_indices
+            
             if last_rules_date != today_iso: 
                 user_data["rules_indices_today"] = [rule_index]
             
             await save_users(context, context.application.bot_data["users"])
             await safe_send(context, chat_id, text, reply_markup=markup)
-
+        
+        except ZoneInfoNotFoundError:
+            logger.warning(f"Invalid timezone '{user_tz_key}' for user {chat_id} in send_rules. Defaulting to Kiev.")
+            user_data["timezone"] = DEFAULT_TZ_KEY # Исправляем невалидный TZ
+            await save_users(context, context.application.bot_data["users"])
+            await safe_send(context, chat_id, get_text('list_error_unexpected', lang=lang, title=get_text('title_rules', lang=lang)), reply_markup=markup)
         except Exception as e:
-             await safe_send(context, chat_id, get_text('list_error_unexpected', lang=lang, title=get_text('title_rules', lang=lang)), reply_markup=markup)
-             logger.exception(f"Unexpected error in send_rules for key 'rules/{lang}':")
-
+            await safe_send(context, chat_id, get_text('list_error_unexpected', lang=lang, title=get_text('title_rules', lang=lang)), reply_markup=markup)
+            logger.exception(f"Unexpected error in send_rules for key 'rules/{lang}':")
 
 async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
     logger.debug(f"Challenge command triggered by user {chat_id}")
+    
     user_data = context.application.bot_data["users"].get(str(chat_id), {})
-    user_tz = ZoneInfo(user_data.get("timezone", DEFAULT_TZ.key))
+    # ⭐️ v10.15: Используем часовой пояс пользователя
+    user_tz_key = user_data.get("timezone", DEFAULT_TZ_KEY)
+    try:
+        user_tz = ZoneInfo(user_tz_key)
+    except ZoneInfoNotFoundError:
+        logger.warning(f"Invalid timezone '{user_tz_key}' for user {chat_id} in challenge_command. Defaulting to Kiev.")
+        user_tz = DEFAULT_TZ
+        user_data["timezone"] = DEFAULT_TZ_KEY
+    
     today = datetime.now(user_tz).date()
     today_iso = today.isoformat()
-
     last_challenge_date_str = user_data.get("last_challenge_date")
     
     if last_challenge_date_str:
@@ -925,6 +1283,7 @@ async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                     await update.message.reply_text(get_text('challenge_pending_acceptance', lang=lang), reply_markup=markup)
                     return
                 
+                # 🐞 v10.11: Тестеры могут брать челлендж повторно
                 elif challenge_accepted is True and not (chat_id in TESTER_USER_IDS):
                     logger.debug(f"User {chat_id} already has an accepted challenge for today.")
                     await update.message.reply_text(get_text('challenge_already_issued', lang=lang), reply_markup=markup)
@@ -933,16 +1292,15 @@ async def challenge_command(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             elif last_challenge_date < today - timedelta(days=1):
                 last_challenge_obj = next((ch for ch in reversed(user_data.get("challenges", [])) if date.fromisoformat(ch["accepted"].split("T")[0]) == last_challenge_date), None)
                 if last_challenge_obj and not last_challenge_obj.get("completed"):
-                     logger.info(f"Streak reset for {chat_id}: Previous challenge on {last_challenge_date_str} not completed.")
-                     user_data["challenge_streak"] = 0
-                     await save_users(context, context.application.bot_data["users"])
-
+                    logger.info(f"Streak reset for {chat_id}: Previous challenge on {last_challenge_date_str} not completed.")
+                    user_data["challenge_streak"] = 0
+                    await save_users(context, context.application.bot_data["users"])
+                    
         except (ValueError, TypeError) as e:
-             logger.error(f"Error parsing last_challenge_date '{last_challenge_date_str}' for user {chat_id}: {e}")
+            logger.error(f"Error parsing last_challenge_date '{last_challenge_date_str}' for user {chat_id}: {e}")
 
     logger.debug(f"Sending new challenge for user {chat_id}")
     await send_new_challenge_message(update, context, is_edit=False, markup=markup)
-
 
 async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAULT_TYPE, is_edit=False, markup: ReplyKeyboardMarkup = None):
     chat_id = update.effective_chat.id
@@ -952,7 +1310,6 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
     challenge_list = challenges_data.get(lang, challenges_data.get(DEFAULT_LANG, []))
     
     logger.debug(f"Attempting to send challenge for lang '{lang}'. Found {len(challenge_list)} total challenges.")
-
     if not challenge_list:
         logger.error(f"Challenge list is empty for lang '{lang}'!")
         await safe_send(context, chat_id, get_text('list_empty', lang=lang, title=get_text('btn_challenge', lang=lang)), reply_markup=markup)
@@ -961,11 +1318,11 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
     try:
         challenge_raw = random.choice(challenge_list)
         logger.debug(f"Selected challenge (raw): {challenge_raw}")
-
+        
         user_name = context.application.bot_data["users"].get(str(chat_id), {}).get("name", "друг")
         formatted_challenge = challenge_raw.format(name=user_name)
         logger.debug(f"Formatted challenge: {formatted_challenge}")
-
+        
         context.user_data['current_challenge_text'] = formatted_challenge
         logger.debug(f"Stored challenge text in user_data for {chat_id}")
 
@@ -973,10 +1330,10 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
             InlineKeyboardButton(get_text('btn_challenge_accept', lang=lang), callback_data="accept_current_challenge"),
             InlineKeyboardButton(get_text('btn_challenge_new', lang=lang), callback_data="new_challenge")
         ]]
-
+        
         text = get_text('challenge_new_day', lang=lang, challenge_text=formatted_challenge)
+        
         sender = update.callback_query.edit_message_text if is_edit else update.message.reply_text
-
         sent_message = None
         if is_edit:
             sent_message = await sender(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
@@ -985,33 +1342,44 @@ async def send_new_challenge_message(update: Update, context: ContextTypes.DEFAU
         
         message_id_to_store = None
         if not is_edit and sent_message:
-             message_id_to_store = sent_message.message_id
+            message_id_to_store = sent_message.message_id
         elif is_edit and update.callback_query:
-             message_id_to_store = update.callback_query.message.message_id
-             
+            message_id_to_store = update.callback_query.message.message_id
+            
         if message_id_to_store:
-             context.user_data['challenge_message_id'] = message_id_to_store
-             logger.debug(f"Stored/Updated challenge message ID {message_id_to_store} for user {chat_id}")
+            context.user_data['challenge_message_id'] = message_id_to_store
+            logger.debug(f"Stored/Updated challenge message ID {message_id_to_store} for user {chat_id}")
 
         users_data = context.application.bot_data["users"]
-        user_tz = ZoneInfo(users_data.get(str(chat_id), {}).get("timezone", DEFAULT_TZ.key))
+        user_data = users_data.get(str(chat_id), {})
+        
+        # ⭐️ v10.15: Используем часовой пояс пользователя
+        user_tz_key = user_data.get("timezone", DEFAULT_TZ_KEY)
+        try:
+            user_tz = ZoneInfo(user_tz_key)
+        except ZoneInfoNotFoundError:
+            user_tz = DEFAULT_TZ
+        
         today_iso = datetime.now(user_tz).date().isoformat()
-        users_data[str(chat_id)]["last_challenge_date"] = today_iso
-        users_data[str(chat_id)]["challenge_accepted"] = False
+        user_data["last_challenge_date"] = today_iso
+        user_data["challenge_accepted"] = False
+        users_data[str(chat_id)] = user_data # Убеждаемся, что user_data сохраняется
         await save_users(context, users_data)
+        
         logger.debug(f"Challenge sent/edited successfully for {chat_id}")
+
     except IndexError:
-         logger.error(f"IndexError when choosing challenge! List content: {challenge_list}")
-         await safe_send(context, chat_id, get_text('challenge_choose_error', lang=lang), reply_markup=markup)
+        logger.error(f"IndexError when choosing challenge! List content: {challenge_list}")
+        await safe_send(context, chat_id, get_text('challenge_choose_error', lang=lang), reply_markup=markup)
     except KeyError as e:
-         logger.error(f"KeyError formatting challenge for {chat_id}. Lang: {lang}, Missing key: {e}. Raw challenge: '{challenge_raw}'")
-         await safe_send(context, chat_id, get_text('list_error_format', lang=lang, title=get_text('btn_challenge', lang=lang), e=e), reply_markup=markup)
+        logger.error(f"KeyError formatting challenge for {chat_id}. Lang: {lang}, Missing key: {e}. Raw challenge: '{challenge_raw}'")
+        await safe_send(context, chat_id, get_text('list_error_format', lang=lang, title=get_text('btn_challenge', lang=lang), e=e), reply_markup=markup)
     except BadRequest as e:
-         logger.error(f"BadRequest sending challenge to {chat_id}: {e}.")
-         await safe_send(context, chat_id, get_text('challenge_button_error', lang=lang), reply_markup=markup)
+        logger.error(f"BadRequest sending challenge to {chat_id}: {e}.")
+        await safe_send(context, chat_id, get_text('challenge_button_error', lang=lang), reply_markup=markup)
     except Exception as e:
-         logger.exception(f"Unexpected error sending challenge to {chat_id}:")
-         await safe_send(context, chat_id, get_text('challenge_unexpected_error', lang=lang), reply_markup=markup)
+        logger.exception(f"Unexpected error sending challenge to {chat_id}:")
+        await safe_send(context, chat_id, get_text('challenge_unexpected_error', lang=lang), reply_markup=markup)
 
 # --- Новые функции для оплаты ---
 async def handle_pay_real(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
@@ -1024,23 +1392,18 @@ async def handle_pay_real(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
                     disable_web_page_preview=True, reply_markup=markup)
 
 async def handle_pay_api_test(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
-    """Симулирует успешную API-оплату для тестового пользователя."""
+    """(Для Тестеров) Отправляет ИНСТРУКЦИЮ по P2P-оплате."""
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
-    users_data = context.application.bot_data.get("users", {})
-    user_data = users_data.get(str(chat_id))
-
-    if not user_data or chat_id not in TESTER_USER_IDS:
+    user_name = context.application.bot_data["users"].get(str(chat_id), {}).get("name", "друг")
+    
+    if chat_id not in TESTER_USER_IDS:
         logger.warning(f"Non-tester {chat_id} tried to use test payment.")
         return
-
-    logger.info(f"Simulating API payment for test user {chat_id}.")
-    user_data["is_paid"] = True
-    user_data["demo_expiration"] = None
-    await save_users(context, users_data)
-    
-    await safe_send(context, chat_id, get_text('pay_api_success_test', lang=lang, name=user_data.get("name", "друг")), 
-                    reply_markup=get_reply_keyboard_for_user(chat_id, lang, user_data))
+        
+    logger.info(f"Sending P2P (Monobank) instructions to TESTER {chat_id}.")
+    await safe_send(context, chat_id, get_text('pay_instructions', lang=lang, name=user_name), 
+                    disable_web_page_preview=True, reply_markup=markup)
 
 async def activate_new_demo(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
     chat_id = update.effective_chat.id
@@ -1052,10 +1415,10 @@ async def activate_new_demo(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         logger.warning(f"User {chat_id} trying to activate new demo, but not found.")
         return
         
-    is_test_user = chat_id in TESTER_USER_IDS
-    demo_duration_days = TESTER_DEMO_DAYS if is_test_user else REGULAR_DEMO_DAYS
-
+    # 🐞 v10.11: Используем хелпер
+    demo_duration_days = get_demo_days(chat_id)
     logger.info(f"Activating new demo cycle ({user_data.get('demo_count', 0) + 1}) for user {chat_id}.")
+    
     user_data["demo_count"] = user_data.get("demo_count", 1) + 1
     user_data["demo_expiration"] = (datetime.now(ZoneInfo("UTC")) + timedelta(days=demo_duration_days)).isoformat()
     user_data["challenge_streak"] = 0
@@ -1064,6 +1427,7 @@ async def activate_new_demo(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     user_data["last_rules_date"] = None
     user_data["rules_shown_count"] = 0
     user_data["sent_expiry_warning"] = False
+    user_data["status"] = "active_demo" # Обновляем статус
     
     await save_users(context, users_data)
     
@@ -1071,7 +1435,6 @@ async def activate_new_demo(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await safe_send(context, chat_id, 
                     get_text('welcome_renewed_demo', lang=lang, name=user_data.get("name", "друг"), demo_days=demo_duration_days), 
                     reply_markup=new_markup)
-
 
 # --- Админские функции ---
 async def show_users_file(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
@@ -1083,23 +1446,86 @@ async def show_users_file(update: Update, context: ContextTypes.DEFAULT_TYPE, ma
         await update.message.reply_text(get_text('users_file_empty', lang=lang), reply_markup=markup)
 
 async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, markup: ReplyKeyboardMarkup):
+    """
+    🐞 v10.13: Статистика ПЕРЕПИСАНА + FIX
+    1. Админ и Тестеры принудительно считаются "Активными".
+    2. Добавлена защита от не-числовых КЛЮЧЕЙ в users.json (try...except ValueError).
+    3. ⭐️ v10.14: Убеждаемся, что 'users_data' - это словарь (защита от "сломанного" файла,
+       хотя 'load_users_with_fix' уже должен был это исправить).
+    """
     chat_id = update.effective_chat.id
     lang = get_user_lang(context, chat_id)
-    users_data = {k: v for k, v in context.application.bot_data["users"].items()}
-    total = len(users_data)
-    active = sum(1 for u in users_data.values() if u.get("active"))
-    inactive = total - active
-    active_first = sum(1 for u in users_data.values() if u.get("active") and u.get("demo_count", 1) == 1)
-    active_repeat = sum(1 for u in users_data.values() if u.get("active") and u.get("demo_count", 1) > 1)
-    inactive_demo_expired = sum(1 for u in users_data.values() if not u.get("active") and is_demo_expired(u))
-    inactive_blocked = inactive - inactive_demo_expired
+    
+    users_data = context.application.bot_data["users"]
+    
+    # --- ⭐️ v10.14: Дополнительная проверка ---
+    if not isinstance(users_data, dict):
+        logger.error(f"CRITICAL: users_data is {type(users_data)}, not dict. Cannot generate stats.")
+        # Это может случиться, если 'load_users_with_fix' не сработал или был изменен
+        await update.message.reply_text("Ошибка: Не удалось прочитать данные пользователей. Структура данных нарушена.", reply_markup=markup)
+        return
+        
+    total = 0
+    active = 0
+    active_first = 0
+    active_repeat = 0
+    inactive = 0
+    inactive_demo_expired = 0
+    inactive_blocked = 0
+    
+    # "Специальные" пользователи, которых игнорируем в подсчетах неактивных
+    special_users = TESTER_USER_IDS.union({ADMIN_CHAT_ID})
+
+    for user_id_str, u in users_data.items():
+        if not isinstance(u, dict):
+            logger.warning(f"Skipping malformed user data for ID {user_id_str} in stats (not a dict).")
+            continue
+            
+        try:
+            # --- 🐞 НОВЫЙ FIX v10.13 ---
+            user_id = int(user_id_str)
+        except ValueError:
+            logger.warning(f"Skipping malformed user ID key '{user_id_str}' in stats (not an int).")
+            continue # Пропускаем ключ, если он не-числовой
+            # --- --------------------- ---
+            
+        total += 1
+        
+        # --- Логика подсчета (v10.11) ---
+        is_special = user_id in special_users
+        
+        if is_special:
+            # Админ и Тестеры ВСЕГДА активны
+            active += 1
+            if u.get("demo_count", 1) > 1:
+                active_repeat += 1
+            else:
+                active_first += 1
+            continue
+        
+        # --- Логика для обычных пользователей ---
+        if u.get("active"):
+            active += 1
+            if u.get("demo_count", 1) > 1:
+                active_repeat += 1
+            else:
+                active_first += 1
+        else:
+            # Пользователь неактивен
+            inactive += 1
+            if is_demo_expired(u):
+                inactive_demo_expired += 1
+            else:
+                # Считаем "заблокированным", если 'active'==False, но демо не истек
+                inactive_blocked += 1
+    
     stats_text = (f"👥 <b>{get_text('profile_status_total', lang=lang)}:</b> {total}\n\n"
                   f"✅ <b>{get_text('profile_status_active', lang=lang)}:</b> {active}\n"
-                  f"   - <i>{get_text('profile_status_first_time', lang=lang)}:</i> {active_first}\n"
-                  f"   - <i>{get_text('profile_status_repeat', lang=lang)}:</i> {active_repeat}\n\n"
-                  f"❌ <b>{get_text('profile_status_inactive', lang=lang)}:</b> {inactive}\n"
-                  f"   - <i>{get_text('profile_status_demo_expired', lang=lang)}:</i> {inactive_demo_expired}\n"
-                  f"   - <i>{get_text('profile_status_blocked', lang=lang)}:</i> {inactive_blocked}")
+                  f"  - <i>{get_text('profile_status_first_time', lang=lang)}:</i> {active_first}\n"
+                  f"  - <i>{get_text('profile_status_repeat', lang=lang)}:</i> {active_repeat}\n\n"
+                  f"❌ <b>{get_text('profile_status_inactive', lang=lang)}:</b> {inactive} (Только обычные пользователи)\n"
+                  f"  - <i>{get_text('profile_status_demo_expired', lang=lang)}:</i> {inactive_demo_expired}\n"
+                  f"  - <i>{get_text('profile_status_blocked', lang=lang)}:</i> {inactive_blocked}")
 
     await update.message.reply_text(stats_text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
@@ -1110,6 +1536,7 @@ async def reload_data(update: Update, context: ContextTypes.DEFAULT_TYPE, markup
     await setup_jobs_and_cache(context.application)
     await update.message.reply_text(get_text('reload_confirm', lang=lang), reply_markup=markup)
 
+# --- ⭐️ ИСПРАВЛЕНИЕ 1 (Fix 1) - ЗАМЕНА ВСЕЙ ФУНКЦИИ ⭐️ ---
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
@@ -1125,7 +1552,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             new_lang = new_lang_code
             
     if not new_lang:
+        # --- ИСПРАВЛЕНИЕ v10.16.1 ---
+        # Убедимся, что context_or_app - это 'context'
         new_lang = get_user_lang(context, chat_id)
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ v10.16.1 ---
     
     lang = new_lang
     
@@ -1150,18 +1580,24 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     logger.info(f"💬 Callback от {chat_id} (lang: {lang}): {query.data}")
     
     data = query.data
-
     if data.startswith("set_lang_"):
-        is_test_user = (chat_id in TESTER_USER_IDS)
+        # 🐞 v10.11: Используем хелпер для определения дней
+        demo_duration_days = get_demo_days(chat_id)
         
         user_data["language"] = lang
         
         if is_new_flow:
             user_name = query.from_user.first_name or "друг"
+            user_lang_code = query.from_user.language_code
+            
+            # --- ⭐️ v10.15: АВТОМАТИЧЕСКАЯ УСТАНОВКА TIMEZONE ---
+            auto_tz_key = get_tz_from_lang(user_lang_code)
+            user_data["timezone"] = auto_tz_key
+            # --- ⭐️ КОНЕЦ v10.15 ---
+            
             user_data["id"] = chat_id
             user_data["name"] = user_name
             user_data["active"] = True
-            user_data["timezone"] = DEFAULT_TZ.key
             user_data["demo_count"] = 1
             user_data["challenge_streak"] = 0
             user_data["challenges"] = []
@@ -1172,14 +1608,19 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             user_data["is_paid"] = False 
             user_data["stats_likes"] = 0
             user_data["stats_dislikes"] = 0
-
-            demo_duration_days = 1 if is_test_user else REGULAR_DEMO_DAYS
+            user_data["status"] = "active_demo" # ✅ НОВЫЙ СТАТУС
             user_data["demo_expiration"] = (datetime.now(ZoneInfo("UTC")) + timedelta(days=demo_duration_days)).isoformat()
             
-            logger.info(f"👤 Пользователь {chat_id} зарегистрирован/обновлен с языком {lang}. Демо: {demo_duration_days} дней.")
-
-            if chat_id != ADMIN_CHAT_ID and not is_test_user and user_data["demo_count"] == 1:
+            logger.info(f"👤 Пользователь {chat_id} зарегистрирован/обновлен с языком {lang}. Демо: {demo_duration_days} дней. Auto-TZ: {auto_tz_key} (based on {user_lang_code})")
+            
+            # 🐞 v10.11: Не шлем админу уведомление о Тестерах или Симуляторах
+            is_test_user = chat_id in TESTER_USER_IDS
+            is_simulator = chat_id in SIMULATOR_USER_IDS
+            
+            if chat_id != ADMIN_CHAT_ID and not is_test_user and not is_simulator and user_data["demo_count"] == 1:
+                # --- ИСПРАВЛЕНИЕ v10.16.1 ---
                 admin_lang = get_user_lang(context, ADMIN_CHAT_ID)
+                # --- КОНЕЦ ИСПРАВЛЕНИЯ v10.16.1 ---
                 keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(get_text('admin_stats_button', lang=admin_lang), callback_data="admin_stats")]])
                 admin_notification_text = get_text('admin_new_user', lang=admin_lang, name=user_name, user_id=chat_id)
                 try:
@@ -1197,18 +1638,27 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(get_text('lang_chosen', lang=lang), reply_markup=None)
         
         if is_new_flow:
-            await safe_send(context, chat_id, get_text('welcome', lang=lang, name=user_data.get("name"), demo_days=demo_duration_days), reply_markup=markup)
+            # --- ⭐️ v10.15: Добавляем P.S. про АВТО-часовой пояс ---
+            welcome_text = get_text('welcome', lang=lang, name=user_data.get("name"), demo_days=demo_duration_days)
+            welcome_text += get_text('welcome_timezone_note', lang=lang, default_tz=user_data.get("timezone", DEFAULT_TZ_KEY))
+            
+            # --- ⭐️ ИСПРАВЛЕНИЕ 1 (Fix 1) - УБРАН 'parse_mode' ⭐️ ---
+            # Эта строка вызывала TypeError, т.к. safe_send УЖЕ содержит parse_mode
+            await safe_send(context, chat_id, welcome_text, reply_markup=markup)
+            # --- ⭐️ КОНЕЦ ИСПРАВЛЕНИЯ 1 ⭐️ ---
+            
         else:
-             await context.bot.send_message(chat_id, get_text('lang_chosen', lang=lang), reply_markup=markup)
+            await context.bot.send_message(chat_id, get_text('lang_chosen', lang=lang), reply_markup=markup)
         return
-
+        
     elif data == "accept_current_challenge":
         challenge_text = context.user_data.get('current_challenge_text')
         message_id = context.user_data.get('challenge_message_id')
+
         if not challenge_text or not message_id:
-             logger.error(f"No challenge text or message_id in user_data for {chat_id_str} on accept.")
-             await query.edit_message_text(get_text('challenge_accept_error', lang=lang))
-             return
+            logger.error(f"No challenge text or message_id in user_data for {chat_id_str} on accept.")
+            await query.edit_message_text(get_text('challenge_accept_error', lang=lang))
+            return
 
         user_data["challenge_accepted"] = True
         challenge_history = user_data.setdefault("challenges", [])
@@ -1219,29 +1669,30 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await save_users(context, users_data)
 
         keyboard = [[InlineKeyboardButton(get_text('btn_challenge_complete', lang=lang), callback_data=f"complete_challenge:{accepted_challenge_index}")]]
+        
         try:
-             await context.bot.edit_message_text(
-                 chat_id=chat_id, message_id=message_id,
-                 text=get_text('challenge_accepted_msg', lang=lang, challenge_text=challenge_text),
-                 reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
-             )
-             logger.debug(f"Challenge accepted message edited for {chat_id_str}")
+            await context.bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id,
+                text=get_text('challenge_accepted_msg', lang=lang, challenge_text=challenge_text),
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
+            )
+            logger.debug(f"Challenge accepted message edited for {chat_id_str}")
         except BadRequest as e:
-             logger.error(f"Failed to edit message {message_id} for {chat_id_str} on accept: {e}")
-             await context.bot.send_message(
-                 chat_id=chat_id, text=get_text('challenge_accepted_msg', lang=lang, challenge_text=challenge_text),
-                 reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
-             )
+            logger.error(f"Failed to edit message {message_id} for {chat_id_str} on accept: {e}")
+            await context.bot.send_message(
+                chat_id=chat_id, text=get_text('challenge_accepted_msg', lang=lang, challenge_text=challenge_text),
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
+            )
+            
         context.user_data.pop('current_challenge_text', None)
-
 
     elif data.startswith("complete_challenge:"):
         message_id = context.user_data.get('challenge_message_id')
         if not message_id:
-             logger.error(f"No challenge message_id in user_data for {chat_id_str} on complete.")
-             try: await query.edit_message_text(get_text('challenge_completed_edit_err', lang=lang))
-             except BadRequest: pass
-             return
+            logger.error(f"No challenge message_id in user_data for {chat_id_str} on complete.")
+            try: await query.edit_message_text(get_text('challenge_completed_edit_err', lang=lang))
+            except BadRequest: pass
+            return
         
         try:
             challenge_index_to_complete = int(data.split(":")[-1])
@@ -1249,10 +1700,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             
             if 0 <= challenge_index_to_complete < len(challenge_history):
                 if challenge_history[challenge_index_to_complete].get("completed"):
-                     logger.warning(f"Challenge {challenge_index_to_complete} already completed by {chat_id_str}.")
-                     try: await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
-                     except BadRequest: pass
-                     return
+                    logger.warning(f"Challenge {challenge_index_to_complete} already completed by {chat_id_str}.")
+                    try: await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+                    except BadRequest: pass
+                    return
 
                 challenge_history[challenge_index_to_complete]["completed"] = datetime.now(ZoneInfo("UTC")).isoformat()
                 current_streak = user_data.get("challenge_streak", 0) + 1
@@ -1263,31 +1714,31 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 confirmation_text = get_text('challenge_completed_msg', lang=lang)
                 
                 await context.bot.edit_message_text(
-                     chat_id=chat_id, message_id=message_id,
-                     text=f"{original_text}\n\n<b>{confirmation_text}</b>",
-                     reply_markup=None, parse_mode=ParseMode.HTML
-                 )
+                    chat_id=chat_id, message_id=message_id,
+                    text=f"{original_text}\n\n<b>{confirmation_text}</b>",
+                    reply_markup=None, parse_mode=ParseMode.HTML
+                )
                 logger.info(f"Challenge {challenge_index_to_complete} completed by user {chat_id_str}. New streak: {current_streak}")
 
                 if current_streak == 3:
-                     await safe_send(context, chat_id, get_text('challenge_streak_3_level_1', lang=lang, name=user_data.get("name", "друг")))
-
+                    await safe_send(context, chat_id, get_text('challenge_streak_3_level_1', lang=lang, name=user_data.get("name", "друг")))
+            
             else:
-                 logger.error(f"Invalid challenge index {challenge_index_to_complete} for user {chat_id_str}")
-                 await query.edit_message_text(get_text('challenge_completed_edit_err', lang=lang))
-
+                logger.error(f"Invalid challenge index {challenge_index_to_complete} for user {chat_id_str}")
+                await query.edit_message_text(get_text('challenge_completed_edit_err', lang=lang))
+                
         except (ValueError, IndexError) as e:
-             logger.error(f"Error processing complete_challenge callback for {chat_id_str}: {e}. Data: {data}")
-             await query.edit_message_text(get_text('challenge_completed_edit_err', lang=lang))
+            logger.error(f"Error processing complete_challenge callback for {chat_id_str}: {e}. Data: {data}")
+            await query.edit_message_text(get_text('challenge_completed_edit_err', lang=lang))
         except BadRequest as e:
-             logger.error(f"Failed to edit message {message_id} for {chat_id_str} on complete: {e}")
-             await context.bot.send_message(chat_id, get_text('challenge_completed_msg', lang=lang), parse_mode=ParseMode.HTML)
+            logger.error(f"Failed to edit message {message_id} for {chat_id_str} on complete: {e}")
+            await context.bot.send_message(chat_id, get_text('challenge_completed_msg', lang=lang), parse_mode=ParseMode.HTML)
         finally:
-             context.user_data.pop('challenge_message_id', None)
-
-
+            context.user_data.pop('challenge_message_id', None)
+            
     elif data == "new_challenge":
         await send_new_challenge_message(update, context, is_edit=True)
+
     elif data == "admin_stats":
         if is_admin(chat_id):
             markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
@@ -1298,172 +1749,282 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             mock_update.message.reply_text = query.message.reply_text
             await user_stats(mock_update, context, markup=markup)
 
-# --- ⭐️ ГЛАВНЫЙ ДИСПЕТЧЕР СООБЩЕНИЙ ⭐️ ---
+# --- ⭐️ v10.15: ГЛАВНЫЙ ДИСПЕТЧЕР (ПОЛНОСТЬЮ ЗАМЕНЕН) ⭐️ ---
 async def main_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
-
     text, chat_id = update.message.text, update.effective_chat.id
+    chat_id_str = str(chat_id)
     
-    user_data = context.application.bot_data.get("users", {}).get(str(chat_id))
+    users_data = context.application.bot_data.get("users", {})
+    user_data = users_data.get(chat_id_str)
+    
     if user_data:
         new_name = update.message.from_user.first_name or "друг"
         if user_data.get("name") != new_name:
             logger.info(f"Updating name for user {chat_id}: from '{user_data.get('name')}' to '{new_name}'")
             user_data["name"] = new_name
-            await save_users(context, context.application.bot_data)
+            await save_users(context, users_data) # <--- Здесь УЖЕ БЫЛ ПРАВИЛЬНЫЙ ФИКС (v10.13)
     
     lang = get_user_lang(context, chat_id)
     logger.debug(f"Received message from {chat_id} (lang: {lang}): '{text}'")
-
+    
     if not user_data:
         logger.warning(f"User {chat_id} not found in bot_data. Asking to /start.")
         await update.message.reply_text(get_text('start_required', lang=DEFAULT_LANG))
         return
 
+    # --- ⏰ НОВЫЙ БЛОК ДЛЯ TIMEZONE ⏰ ---
+    if user_data.get("status") == "awaiting_timezone":
+        
+        # Проверяем на команду отмены
+        if text.lower() == "/cancel" or text == get_text('cmd_cancel', lang=lang):
+            user_data["status"] = "active_demo" # (или is_paid)
+            await save_users(context, users_data)
+            markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
+            current_tz = user_data.get("timezone", DEFAULT_TZ_KEY)
+            await update.message.reply_text(
+                get_text('timezone_cancel', lang=lang, user_tz=current_tz),
+                parse_mode=ParseMode.HTML,
+                reply_markup=markup
+            )
+            return
+
+        try:
+            # Пытаемся распознать часовой пояс
+            new_tz = ZoneInfo(text)
+            user_data["timezone"] = new_tz.key
+            user_data["status"] = "active_demo" # (или is_paid)
+            await save_users(context, users_data)
+            
+            markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
+            await update.message.reply_text(
+                get_text('timezone_set_success', lang=lang, new_tz=new_tz.key),
+                parse_mode=ParseMode.HTML,
+                reply_markup=markup
+            )
+            logger.info(f"User {chat_id} changed timezone to {new_tz.key}")
+            
+        except ZoneInfoNotFoundError: # ⭐️ v10.15: Уточнили тип ошибки
+            # Невалидный пояс
+            logger.warning(f"User {chat_id} sent invalid timezone: '{text}'")
+            await update.message.reply_text(
+                get_text('timezone_set_error', lang=lang, error_text=text),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in timezone handler for {chat_id}: {e}")
+            await update.message.reply_text(
+                get_text('timezone_set_error', lang=lang, error_text=text),
+                parse_mode=ParseMode.HTML
+            )
+        return # Важно, чтобы выйти из хендлера
+    # --- ⏰ КОНЕЦ НОВОГО БЛОКА ⏰ ---
+        
     is_user_admin = is_admin(chat_id)
     is_test_user = chat_id in TESTER_USER_IDS
     
     markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
-
-    if is_demo_expired(user_data) and not user_data.get("is_paid"):
+    
+    is_special_user = is_user_admin or is_test_user
+    if is_demo_expired(user_data) and not user_data.get("is_paid") and not is_special_user:
         logger.info(f"Demo expired for user {chat_id}. Checking access...")
         
-        # --- Обработка кнопок оплаты/демо ---
-        if text == get_btn_text('pay_api_test_premium', lang) and is_test_user:
-            await handle_pay_api_test(update, context, markup=markup)
-            return
-        elif text == get_btn_text('pay_premium', lang) and not is_test_user:
-            await handle_pay_real(update, context, markup=markup)
-            return
-        elif text == get_btn_text('want_demo', lang):
-            await activate_new_demo(update, context, markup=markup)
-            return
-        
-        # --- Если нажата любая другая кнопка (Профиль, Мотивация и т.д.) ---
         try:
             now_utc = datetime.now(ZoneInfo("UTC"))
             demo_exp_date = datetime.fromisoformat(user_data.get("demo_expiration")).replace(tzinfo=ZoneInfo("UTC"))
-            cooldown_days = TESTER_COOLDOWN_DAYS if is_test_user else REGULAR_COOLDOWN_DAYS
-            next_demo_dt = demo_exp_date + timedelta(days=cooldown_days)
             
-            if now_utc < next_demo_dt: # В кулдауне
+            cooldown_days = get_cooldown_days(chat_id)
+            demo_days = get_demo_days(chat_id)
+            max_cycles = get_max_demo_cycles(chat_id)
+            
+            next_demo_dt = demo_exp_date + timedelta(days=cooldown_days)
+            demo_count = user_data.get("demo_count", 1)
+
+            if text == get_btn_text('pay_api_test_premium', lang) and is_test_user:
+                await handle_pay_api_test(update, context, markup=markup)
+                return
+            elif text == get_btn_text('pay_premium', lang) and not is_test_user:
+                await handle_pay_real(update, context, markup=markup)
+                return
+            elif text == get_btn_text('want_demo', lang):
+                if now_utc < next_demo_dt:
+                    user_data["status"] = "awaiting_renewal"
+                    await save_users(context, users_data) # <--- Здесь УЖЕ БЫЛ ПРАВИЛЬНЫЙ ФИКС (v10.13)
+                    new_markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
+                    time_left = next_demo_dt - now_utc
+                    hours_left, remainder = divmod(int(time_left.total_seconds()), 3600)
+                    minutes_left, _ = divmod(remainder, 60)
+                    await safe_send(context, chat_id, get_text('demo_awaiting_renewal', lang=lang, name=user_data.get("name", "друг"), hours=hours_left, minutes=minutes_left), reply_markup=new_markup)
+                else:
+                    await activate_new_demo(update, context, markup=markup)
+                return
+            
+            if user_data.get("status") == "awaiting_renewal":
+                time_left = next_demo_dt - now_utc
+                hours_left, remainder = divmod(int(time_left.total_seconds()), 3600)
+                minutes_left, _ = divmod(remainder, 60)
+                await safe_send(context, chat_id, get_text('demo_awaiting_renewal', lang=lang, name=user_data.get("name", "друг"), hours=hours_left, minutes=minutes_left), reply_markup=markup)
+            
+            elif now_utc < next_demo_dt: 
                 time_left = next_demo_dt - now_utc
                 hours_left, remainder = divmod(int(time_left.total_seconds()), 3600)
                 minutes_left, _ = divmod(remainder, 60)
                 await safe_send(context, chat_id, get_text('demo_expired_cooldown', lang=lang, name=user_data.get("name", "друг"), hours=hours_left, minutes=minutes_left), reply_markup=markup)
-            else: # Кулдаун прошел
-                demo_count = user_data.get("demo_count", 1)
-                if demo_count < MAX_DEMO_CYCLES:
-                    demo_days = TESTER_DEMO_DAYS if is_test_user else REGULAR_DEMO_DAYS
+            
+            else: 
+                if demo_count < max_cycles:
                     await safe_send(context, chat_id, get_text('demo_expired_choice', lang=lang, name=user_data.get("name", "друг"), demo_days=demo_days), reply_markup=markup)
                 else:
                     await safe_send(context, chat_id, get_text('demo_expired_final', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
         
-        except Exception:
-             await safe_send(context, chat_id, get_text('demo_expired_final', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
+        except Exception as e:
+            logger.error(f"Критическая ошибка в demo_expired_handler: {e}")
+            await safe_send(context, chat_id, get_text('demo_expired_final', lang=lang, name=user_data.get("name", "друг")), reply_markup=markup)
         return
     
-    # --- Пользователь активен (демо/премиум) ---
+    # --- Пользователь активен (демо/премиум/админ/тестер) ---
     all_handlers = {
         get_btn_text('motivate', lang): send_motivation,
         get_btn_text('rhythm', lang): send_rhythm,
         get_btn_text('rules', lang): send_rules,
         get_btn_text('challenge', lang): challenge_command,
         get_btn_text('profile', lang): profile_command,
+        # get_btn_text('settings', lang): timezone_command, # <--- ⭐️ v10.15 Убрано
         get_btn_text('stats', lang): user_stats,
         get_btn_text('show_users', lang): show_users_file,
         get_btn_text('reload_data', lang): reload_data,
         get_btn_text('pay_api_test_premium', lang): handle_pay_api_test,
+        get_btn_text('pay_premium', lang): handle_pay_real,
     }
 
     handler_to_call = all_handlers.get(text)
-
+    
     if handler_to_call:
         admin_only_button_keys = {'stats', 'show_users', 'reload_data'}
         button_key_pressed = None
         for key, handler in all_handlers.items():
-             if key == text and handler == handler_to_call:
-                  button_key_pressed = next((k for k,v in translations[lang].items() if v == text and k.startswith("btn_")), None)
-                  if button_key_pressed:
-                       button_key_pressed = button_key_pressed.replace("btn_", "")
-                  break
-
+            if key == text and handler == handler_to_call:
+                button_key_pressed = next((k for k,v in translations[lang].items() if v == text and k.startswith("btn_")), None)
+                if button_key_pressed:
+                    button_key_pressed = button_key_pressed.replace("btn_", "")
+                break
+        
         is_admin_button = button_key_pressed in admin_only_button_keys
-
+        
         if is_admin_button and not is_user_admin:
             logger.warning(f"User {chat_id} attempted to use admin command: {text}")
         else:
             logger.debug(f"Calling handler {handler_to_call.__name__} for user {chat_id}")
             await handler_to_call(update, context, markup=markup)
     else:
-         logger.warning(f"Unknown command received from user {chat_id}: {text}")
-         await update.message.reply_text(get_text('unknown_command', lang=lang), reply_markup=markup)
+        logger.warning(f"Unknown command received from user {chat_id}: {text}")
+        await update.message.reply_text(get_text('unknown_command', lang=lang), reply_markup=markup)
 
 
 # ----------------- 🚀 ЗАПУСК И НАСТРОЙКА -----------------
+
+# --- ⭐️ ИСПРАВЛЕНИЕ 2 (Fix 2) - ЗАМЕНА ВСЕЙ ФУНКЦИИ ⭐️ ---
 async def setup_jobs_and_cache(app: Application):
+    """
+    Загружает весь кэш (файлы JSON) в bot_data и настраивает 
+    основные фоновые задачи (JobQueue).
+    """
     try:
-        app.bot_data["users"] = load_json_data(USERS_FILE, default_factory=dict)
+        # --- ⭐️ FIX v10.14: Вызываем функцию с "лечением" ---
+        app.bot_data["users"] = load_users_with_fix()
+        # --- ⭐️ КОНЕЦ ФИКСА v10.14 ---
+        
         logger.info(f"👥 Загружено {len(app.bot_data['users'])} пользователей")
 
+        # Загружаем остальные JSON-файлы в кэш
         for key, filename in FILE_MAPPING.items():
             filepath = DATA_DIR / filename
             data = load_json_data(filepath)
             app.bot_data[key] = data
             size_info = len(data) if isinstance(data, (list, dict)) else 'N/A'
             logger.info(f"  -> {filename}: {size_info} записей/ключей (Type: {type(data).__name__})")
-
+            
+        # Загружаем все челленджи
         load_all_challenges_into_cache(app)
-
         logger.info("📚 Кэш статических данных загружен")
 
+        # Очищаем старые задачи, если они есть (важно для перезапуска)
         if app.job_queue:
             for job in app.job_queue.jobs():
                 job.schedule_removal()
                 logger.debug(f"Удалена job: {job}")
 
+        # Настраиваем основные рассылки
         now = datetime.now(DEFAULT_TZ)
+        # Запускаем в начале следующего часа
         next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
         
         app.job_queue.run_repeating(centralized_broadcast_job, interval=timedelta(hours=1), first=next_hour)
         logger.info(f"✅ Планировщик (broadcast) настроен! Первая рассылка в: {next_hour.isoformat()}")
         
+        # Настраиваем проверку истечения демо
         app.job_queue.run_repeating(check_demo_expiry_job, interval=timedelta(hours=1), first=now + timedelta(minutes=2))
         logger.info(f"✅ Планировщик (demo expiry) настроен! Первая проверка в: {(now + timedelta(minutes=2)).isoformat()}")
-
+        
+        # --- ⭐️ ИСПРАВЛЕНИЕ 2 (Fix 2) - ДОБАВЛЕН 'backup' ⭐️ ---
+        app.job_queue.run_repeating(backup, interval=timedelta(hours=6), first=now + timedelta(minutes=5))
+        logger.info(f"✅ Планировщик (Backup) настроен! Первый бэкап через 5 минут.")
+        # --- ⭐️ КОНЕЦ ИСПРАВЛЕНИЯ 2 ⭐️ ---
+        
     except Exception as e:
         logger.error(f"❌ Ошибка в setup_jobs_and_cache: {e}")
         logger.exception("Полный traceback для setup_jobs_and_cache:")
         raise
+# --- ⭐️ КОНЕЦ ФУНКЦИИ 'setup_jobs_and_cache' ⭐️ ---
 
+
+# --- Инициализация Application и добавление обработчиков ---
 application = ApplicationBuilder().token(BOT_TOKEN).build()
+
+# 1. Команды
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(CommandHandler("pay", pay_command))
 application.add_handler(CommandHandler("language", language_command))
-application.add_handler(CommandHandler("share", share_command)) 
+application.add_handler(CommandHandler("share", share_command))
+
+# --- ⭐️ FIX v10.15: Добавляем /grant, /timezone, /cancel ---
+application.add_handler(CommandHandler("timezone", timezone_command))
+application.add_handler(CommandHandler("cancel", cancel_command))
+application.add_handler(CommandHandler("grant", grant_command))
+# --- ⭐️ КОНЕЦ ФИКСА v10.15 ---
+
+# 2. Обработчик всех текстовых сообщений (кнопки и ввод timezone)
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_handler))
+
+# 3. Обработчик всех нажатий на инлайн-кнопки (реакции, челленджи)
 application.add_handler(CallbackQueryHandler(handle_callback_query))
 
+
+# --- Управление жизненным циклом FastAPI (Lifespan) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Управляет запуском и остановкой бота при старте/остановке веб-сервера.
+    """
     startup_error = None
     try:
+        # Проверки перед запуском
         if not BOT_TOKEN:
             startup_error = "BOT_TOKEN не задан!"
         elif not ADMIN_CHAT_ID or ADMIN_CHAT_ID == 0:
             startup_error = "ADMIN_CHAT_ID не задан!"
         
         if startup_error:
-             logger.critical(f"❌ {startup_error} Бот не запустится.")
-             yield; return
+            logger.critical(f"❌ {startup_error} Бот не запустится.")
+            yield; return # Завершаем, не запуская бота
 
         logger.debug("Lifespan: Starting initialization...")
         setup_initial_files()
         await application.initialize()
-        await setup_jobs_and_cache(application)
+        await setup_jobs_and_cache(application) # <--- Вызов нашей функции с фиксом
         await application.start()
         logger.debug("Lifespan: Application started.")
-
+        
         if WEBHOOK_URL:
             webhook_url = f"{WEBHOOK_URL}/telegram/{BOT_TOKEN}"
             await application.bot.set_webhook(url=webhook_url)
@@ -1471,47 +2032,108 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("⚠️ WEBHOOK_URL не задан — используется polling (локально).")
 
+        # Уведомляем админа о старте
         admin_lang = get_user_lang(application, ADMIN_CHAT_ID)
         await application.bot.send_message(ADMIN_CHAT_ID, get_text('admin_bot_started', lang=admin_lang))
-        logger.info("✅ Lifespan STARTED - Бот готов!")
+        logger.info("✅ Lifespan: Бот полностью запущен и готов к работе.")
+
+        # --- Yield ---
+        yield # <--- FastAPI (Uvicorn) будет работать здесь
+        # --- Yield ---
 
     except Exception as e:
-        startup_error = e
-        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА в lifespan при запуске: {e}")
-        logger.exception("Полный traceback:")
-
-    yield
-
-    logger.info("Lifespan: Stopping application...")
-    try:
-        if not startup_error:
-             admin_lang = get_user_lang(application, ADMIN_CHAT_ID)
-             await application.bot.send_message(ADMIN_CHAT_ID, get_text('admin_bot_stopping', lang=admin_lang))
+        # Эта ошибка произошла ВО ВРЕМЯ ЗАПУСКА
+        logger.critical(f"❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ: {e}")
+        logger.exception("Полный traceback ошибки запуска:")
+        if ADMIN_CHAT_ID != 0:
+            try:
+                # Убедимся, что бот инициализирован для отправки
+                if not application.bot:
+                    await application.initialize()
+                await application.bot.send_message(ADMIN_CHAT_ID, f"❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ: {e}")
+            except Exception as e_admin:
+                logger.error(f"Не удалось отправить админу сообщение об ошибке запуска: {e_admin}")
         
-        await application.stop()
-        await application.shutdown()
-        logger.info("✅ Lifespan STOPPED")
-    except Exception as e:
-        logger.error(f"❌ Ошибка при остановке: {e}")
+        # Все равно yield, чтобы FastAPI мог завершиться,
+        # хотя бот, скорее всего, не будет работать
+        yield
 
+    finally:
+        # --- Shutdown ---
+        logger.info("⏳ Lifespan: Начинается остановка бота...")
+        admin_lang = get_user_lang(application, ADMIN_CHAT_ID)
+        
+        try:
+            if ADMIN_CHAT_ID != 0 and application.bot and application.is_running:
+                    await application.bot.send_message(ADMIN_CHAT_ID, get_text('admin_bot_stopping', lang=admin_lang))
+        except Exception as e:
+            logger.error(f"Не удалось отправить админу сообщение об остановке: {e}")
+
+        if application.job_queue:
+            application.job_queue.stop()
+            logger.info("Планировщик остановлен.")
+
+        if application.is_running:
+            await application.stop()
+            logger.info("Application (polling/webhook) остановлен.")
+        
+        await application.shutdown()
+        logger.info("Application (соединения) выключен.")
+        logger.info("👋 Бот выключен.")
+
+# --- FastAPI App ---
 app = FastAPI(lifespan=lifespan)
 
-@app.post(f"/telegram/{BOT_TOKEN}")
-async def telegram_webhook(request: Request):
-    update = Update.de_json(await request.json(), application.bot)
-    await application.process_update(update)
-    return {"ok": True}
-
 @app.get("/")
-async def health_check(): return {"status": "fotinia-v10.5-final-features-ready"}
+async def root():
+    return {"status": "FotiniaBot v10.16.1 is alive"}
 
-if __name__ == "__main__":
+@app.post("/telegram/{token}")
+async def webhook(request: Request, token: str):
+    """
+    Основной вебхук-энтрипоинт.
+    """
+    if token != BOT_TOKEN:
+        logger.warning(f"Invalid token received: {token[:5]}...")
+        return {"status": "error", "message": "Invalid token"}, 403
+
     try:
-        logger.info("🚀 Запуск в режиме Polling")
-        setup_initial_files()
-        asyncio.run(setup_jobs_and_cache(application))
-        application.run_polling()
+        update_data = await request.json()
+        update = Update.de_json(update_data, application.bot)
+        logger.debug(f"Webhook: Получен update {update.update_id}")
+
+        # Передаем управление в python-telegram-bot
+        await application.process_update(update)
+
+        return {"status": "ok"}
+    except json.JSONDecodeError:
+        logger.error("Webhook: Не удалось декодировать JSON.")
+        return {"status": "error", "message
+
+logger.error("Webhook: Не удалось декодировать JSON.")
+        return {"status": "error", "message": "Invalid JSON"}, 400
     except Exception as e:
-        logger.error(f"❌ Ошибка в polling: {e}")
-        logger.exception("Полный traceback:")
+        logger.error(f"Webhook: Ошибка обработки update: {e}")
+        logger.exception("Полный traceback ошибки webhook:")
+        return {"status": "error", "message": "Internal server error"}, 500
+
+# --- Запуск (для локальной отладки) ---
+if __name__ == "__main__":
+    # Этот блок НЕ будет выполняться при запуске через Uvicorn/Gunicorn
+    logger.info("Запуск в режиме polling (локальная отладка)...")
+    
+    # Настраиваем все вручную, так как lifespan не вызывается
+    setup_initial_files()
+    asyncio.run(application.initialize())
+    asyncio.run(setup_jobs_and_cache(application))
+    
+    # Запускаем polling
+    logger.info("...Начинаю polling...")
+    application.run_polling()
+    logger.info("...Polling завершен.")
+
+"""
+Конец файла
+"""
+
 

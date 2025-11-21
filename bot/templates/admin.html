@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админка Fotinia</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .card { border-radius: 15px; border: none; }
+        .table th { font-weight: 600; }
+        .btn-xs { padding: 0.25rem 0.5rem; font-size: 0.75rem; line-height: 1.5; border-radius: 0.2rem; }
+        form { display: inline-block; margin-right: 2px; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid p-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="h3">👥 Панель управления пользователями</h1>
+            <span class="badge bg-primary fs-5 shadow-sm">Всего: {{ total_users }}</span>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 table-striped align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>ID</th>
+                                <th>Имя</th>
+                                <th>Язык</th>
+                                <th>Статус</th>
+                                <th>Истекает</th>
+                                <th>Активен</th>
+                                <th class="text-end">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user_id, user in users.items() %}
+                            <tr>
+                                <td><code>{{ user_id }}</code></td>
+                                <td class="fw-bold">{{ user.get('name', 'Неизвестно') }}</td>
+                                <td>{{ user.get('language', 'ru').upper() }}</td>
+                                <td>
+                                    {% if user.get('is_paid') %}
+                                        <span class="badge bg-warning text-dark">Premium</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Демо ({{ user.get('demo_count', 1) }})</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small">{{ user.get('demo_expiration', '').split('T')[0] }}</td>
+                                <td>
+                                    {% if user.get('active') %}
+                                        <span class="badge bg-success">Да</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Нет</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <form method="post" action="/admin/action">
+                                        <input type="hidden" name="user_id" value="{{ user_id }}">
+                                        <input type="hidden" name="action" value="give_premium">
+                                        <button type="submit" class="btn btn-warning btn-sm" title="Выдать Premium на 30 дней">👑</button>
+                                    </form>
+
+                                    <form method="post" action="/admin/action">
+                                        <input type="hidden" name="user_id" value="{{ user_id }}">
+                                        <input type="hidden" name="action" value="reset_demo">
+                                        <button type="submit" class="btn btn-info btn-sm text-white" title="Сбросить демо (дать 5 дней)">🔄</button>
+                                    </form>
+
+                                    <form method="post" action="/admin/action">
+                                        <input type="hidden" name="user_id" value="{{ user_id }}">
+                                        <input type="hidden" name="action" value="toggle_ban">
+                                        {% if user.get('active') %}
+                                            <button type="submit" class="btn btn-outline-danger btn-sm" title="Заблокировать">🛑</button>
+                                        {% else %}
+                                            <button type="submit" class="btn btn-outline-success btn-sm" title="Разблокировать">🟢</button>
+                                        {% endif %}
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="mt-4 text-center text-muted small">FotiniaBot Admin Panel v1.1 (RU)</div>
+    </div>
+</body>
+</html>

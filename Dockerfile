@@ -15,13 +15,16 @@ RUN apt-get update && apt-get install -y tzdata && apt-get clean && rm -rf /var/
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# ✅ ГЛАВНОЕ ИСПРАВЛЕНИЕ:
-# Копируем контент из локальной папки 'data_initial' (где лежат ваши файлы)
-# внутрь образа, чтобы потом перенести его в постоянное хранилище.
+# Копируем контент из локальной папки 'data_initial'
 COPY data_initial/ /app/data_initial/
 
-# Копируем основной файл бота
-COPY bot.py .
+# Копируем ВСЮ папку 'bot'
+COPY bot/ /app/bot/
 
-# Команда для запуска веб-сервера с ботом
-CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
+# ✅ НОВОЕ: Явно копируем шаблоны (на всякий случай, хотя COPY bot/ должно хватить, но так надежнее)
+COPY bot/templates/ /app/bot/templates/
+
+# Эта команда CMD соответствует тому, что ожидает fly.toml
+# (Uvicorn будет запущен из /app/bot, поэтому путь "main:app" - верный)
+WORKDIR /app/bot
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

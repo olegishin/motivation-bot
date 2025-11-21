@@ -1,3 +1,6 @@
+# fly.toml
+# Конфигурация для Fly.io (v10.17)
+
 # Ім'я вашого додатку на Fly.io
 app = "fotinia-final"
 primary_region = "fra"
@@ -7,8 +10,10 @@ primary_region = "fra"
   dockerfile = "Dockerfile"
 
 [env]
-  # URL вашого додатку для вебхука
-  WEBHOOK_URL = "https://fotinia-final.fly.dev"
+  # --- Этот файл (v10.17) УПРОЩЕН ---
+  # Секреты (TOKEN, ADMIN_ID, WEBHOOK_URL) 
+  # теперь загружаются из .env через config.py
+  
   # Шлях до постійного сховища всередині контейнера
   DATA_DIR = "/app/data"
   # Налаштування для коректного виводу логів Python
@@ -19,11 +24,10 @@ primary_region = "fra"
 [http_service]
   internal_port = 8080
   force_https = true
-  # Запобігає зупинці машини при неактивності
   auto_stop_machines = false
   auto_start_machines = false
-  # Гарантує, що завжди працює хоча б одна машина
   min_machines_running = 1
+  # Этот сервис обслуживает ТОЛЬКО 'web' процесс
   processes = ["web"]
 
   # Налаштування перевірки "здоров'я" додатку
@@ -36,9 +40,10 @@ primary_region = "fra"
     path = "/"
     protocol = "http"
 
-# Спрощений запуск через Uvicorn, без Gunicorn
+# --- ⭐️ ГЛАВНОЕ ИЗМЕНЕНИЕ v10.17 ⭐️ ---
 [processes]
-  web = "uvicorn bot:app --host 0.0.0.0 --port 8080"
+  # Запускаем main:app изнутри папки (которую мы установили в WORKDIR)
+  web = "uvicorn main:app --host 0.0.0.0 --port 8080"
 
 # Конфігурація віртуальної машини
 [[vm]]
@@ -46,7 +51,8 @@ primary_region = "fra"
   cpus = 1
   memory_mb = 512
 
-# Підключення постійного сховища (volume)
+# --- Нужен ТОЛЬКО ОДИН ДИСК ---
+# (Бэкапы теперь сохраняются в /app/data/backups)
 [mounts]
   source = "fotinia_data"
   destination = "/app/data"

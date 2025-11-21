@@ -21,6 +21,12 @@ def is_admin(chat_id: int) -> bool:
     """Проверяет, является ли пользователь админом."""
     return chat_id == settings.ADMIN_CHAT_ID
 
+def is_premium_active(user_data: dict) -> bool:
+    """Проверяет, активен ли Premium (или демо)."""
+    if not user_data:
+        return False
+    return user_data.get("is_paid", False) or not is_demo_expired(user_data)
+
 
 def is_demo_expired(user_data: dict) -> bool:
     """Проверяет, истек ли демо-период."""
@@ -36,6 +42,10 @@ def is_demo_expired(user_data: dict) -> bool:
         return datetime.now(ZoneInfo("UTC")) > expiration_dt
     except (ValueError, TypeError):
         return True
+
+def get_expiry_date(days: int) -> datetime:
+    """Рассчитывает дату истечения демо-периода в UTC."""
+    return datetime.now(ZoneInfo("UTC")) + timedelta(days=days)
 
 
 def get_user_lang(user_data: dict) -> Lang:
@@ -70,7 +80,7 @@ def get_tz_from_lang(lang_code: str | None) -> str:
 # --- Хелперы для ролей ---
 def get_demo_days(chat_id: int) -> int:
     if chat_id in settings.SIMULATOR_USER_IDS:
-        return 2
+        return settings.REGULAR_DEMO_DAYS
     if chat_id in settings.TESTER_USER_IDS:
         return settings.TESTER_DEMO_DAYS
     return settings.REGULAR_DEMO_DAYS
@@ -78,7 +88,7 @@ def get_demo_days(chat_id: int) -> int:
 
 def get_cooldown_days(chat_id: int) -> int:
     if chat_id in settings.SIMULATOR_USER_IDS:
-        return 1
+        return settings.REGULAR_COOLDOWN_DAYS
     if chat_id in settings.TESTER_USER_IDS:
         return settings.TESTER_COOLDOWN_DAYS
     return settings.REGULAR_COOLDOWN_DAYS
@@ -86,11 +96,40 @@ def get_cooldown_days(chat_id: int) -> int:
 
 def get_max_demo_cycles(chat_id: int) -> int:
     if chat_id in settings.SIMULATOR_USER_IDS:
-        return 2
+        return settings.MAX_DEMO_CYCLES
     if chat_id in settings.TESTER_USER_IDS:
         return 999
     return settings.MAX_DEMO_CYCLES
 
+
+# =====================================================
+# 4. ФУНКЦИИ ВРЕМЕНИ И РАССЫЛКИ (КРИТИЧЕСКОЕ ДОБАВЛЕНИЕ)
+# =====================================================
+
+def get_current_user_dt(user_tz: ZoneInfo) -> datetime:
+    """Возвращает текущее время пользователя с учетом его часового пояса."""
+    return datetime.now(user_tz)
+
+def is_time_for_user(user_id: int, current_user_dt: datetime, user_tz: ZoneInfo) -> str | None:
+    """
+    Определяет, пришло ли время для рассылки (morning, ritm, motivations, evening) 
+    для данного пользователя в его локальном времени.
+    Возвращает категорию или None.
+    """
+    
+    current_hour = current_user_dt.hour
+    
+    # График рассылки: 8:00 (утро), 12:00 (ритм), 16:00 (мотивация), 20:00 (вечер)
+    if current_hour == 8:
+        return "morning"
+    if current_hour == 12:
+        return "ritm"
+    if current_hour == 16:
+        return "motivations"
+    if current_hour == 20:
+        return "evening"
+        
+    return None
 
 # =====================================================
 # 2. Безопасная отправка
@@ -98,11 +137,11 @@ def get_max_demo_cycles(chat_id: int) -> int:
 
 async def safe_send(bot: Bot, chat_id: int, text: str, **kwargs) -> bool:
     try:
-        await bot.send_message(chat_id=chat_id, text=text, **kwargs)
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", **kwargs)
         return True
     except TelegramForbiddenError:
         logger.warning(f"Bot blocked by {chat_id}.")
-        await db.update_user(chat_id, active=False)
+        await db.update_user(chat_id, is_active=False)
     except TelegramRetryAfter as e:
         await asyncio.sleep(e.retry_after)
         return await safe_send(bot, chat_id, text, **kwargs)
@@ -121,8 +160,8 @@ class AccessMiddleware(BaseMiddleware):
         handler: Callable[[Update, Dict[str, Any]], Awaitable[Any]],
         event: Update,
         data: Dict[str, Any]
-   ) -> Any:
-       
+    ) -> Any:
+        
         user = None
         message = None
         if event.message:
@@ -142,17 +181,20 @@ class AccessMiddleware(BaseMiddleware):
         # --- Регистрация нового пользователя ---
         if is_new_user:
             lang_code = user.language_code if user.language_code in ["ru", "ua", "en"] else "ru"
-            await db.add_user(
+            
+            await db.add_user(user_id=chat_id)
+            await db.update_user(
                 user_id=chat_id,
                 username=user.username,
-                full_name=user.first_name,
+                first_name=user.first_name, # Используем first_name
                 language=lang_code,
                 timezone=get_tz_from_lang(lang_code)
             )
+            
             user_data = await db.get_user(chat_id)
 
         lang = get_user_lang(user_data)
-        is_admin_flag = is_admin(chat_id)  # <-- Чёткое имя, без конфликта
+        is_admin_flag = is_admin(chat_id)
 
         # --- Вставляем в data ---
         data.update({
@@ -167,7 +209,7 @@ class AccessMiddleware(BaseMiddleware):
             text = message.text
 
             # Заблокированный пользователь
-            if user_data.get("active") is False and not is_admin_flag:
+            if user_data.get("is_active") is False and not is_admin_flag:
                 return
 
             # Админ / платный / спец — полный доступ
@@ -196,5 +238,5 @@ class AccessMiddleware(BaseMiddleware):
             await handle_expired_demo(message, user_data, lang)
             return
 
-        # Для callback_query — просто пропускаем (уже проверено в хендлерах)
+        # Для callback_query — просто пропускаем
         return await handler(event, data)
