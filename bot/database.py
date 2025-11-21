@@ -12,21 +12,14 @@ class Database:
 
     async def init(self):
         """Инициализация соединения и создание таблиц."""
-        # ЭТО СООБЩЕНИЕ ПОКАЖЕТ, ЧТО КОД ОБНОВИЛСЯ:
-        logger.info("🚀 ЗАПУСК НОВОЙ ВЕРСИИ БАЗЫ ДАННЫХ...")
-        
+        logger.info("🚀 ЗАПУСК БАЗЫ ДАННЫХ (DICT FIX)...")
         self.conn = await aiosqlite.connect(self.db_path)
         self.conn.row_factory = aiosqlite.Row
         await self._create_tables()
         logger.info("📦 База данных (aiosqlite) успешно подключена.")
 
     async def _create_tables(self):
-        """
-        Создаем таблицы.
-        В SQL используем только -- для комментариев.
-        """
-        
-        # Основная таблица пользователей
+        """Создаем таблицы."""
         await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS user (
                 user_id INTEGER PRIMARY KEY,
@@ -36,25 +29,18 @@ class Database:
                 timezone TEXT DEFAULT 'Europe/Kiev',
                 is_active INTEGER DEFAULT 1,
                 last_active TEXT,
-                
-                -- Поля подписки и демо
                 is_paid INTEGER DEFAULT 0,
                 demo_expiration TEXT,
                 demo_cycles INTEGER DEFAULT 0,
-                
-                -- Статистика и геймификация
                 challenge_streak INTEGER DEFAULT 0,
                 content_sent INTEGER DEFAULT 0,
                 feedback_likes INTEGER DEFAULT 0,
                 feedback_dislikes INTEGER DEFAULT 0,
-                
-                -- JSON списки (храним как TEXT)
                 challenges TEXT DEFAULT '[]',
                 reacted_messages TEXT DEFAULT '[]'
             );
         """)
         
-        # Таблица для FSM (машина состояний)
         await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS fsm_storage (
                 user_id INTEGER PRIMARY KEY,
@@ -65,47 +51,52 @@ class Database:
         await self.conn.commit()
 
     async def get_user(self, user_id: int):
-        """Получить пользователя по ID как словарь."""
+        """Получить одного пользователя по ID."""
         async with self.conn.execute("SELECT * FROM user WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             if row:
                 return dict(row)
             return None
 
+    async def get_all_users(self):
+        """
+        Получить ВСЕХ пользователей.
+        ВАЖНО: Возвращаем словарь {str(user_id): data}, чтобы scheduler не падал.
+        """
+        async with self.conn.execute("SELECT * FROM user") as cursor:
+            rows = await cursor.fetchall()
+            # Превращаем список строк БД в словарь: "12345": {данные}
+            return {str(row["user_id"]): dict(row) for row in rows}
+
     async def update_user(self, user_id: int, **kwargs):
-        """Обновляем или создаем пользователя."""
+        """Обновляем пользователя."""
         if not kwargs:
             return
         
-        # 1. Убедимся, что пользователь есть
         await self.conn.execute("INSERT OR IGNORE INTO user (user_id) VALUES (?)", (user_id,))
         
-        # 2. Подготовка данных
         set_parts = []
         values = []
         
         for key, value in kwargs.items():
             set_parts.append(f"{key} = ?")
-            # Если это список или словарь — превращаем в JSON-строку
             if isinstance(value, (list, dict)):
                 values.append(json.dumps(value, ensure_ascii=False))
             elif isinstance(value, bool):
-                 # Python bool True -> SQLite INTEGER 1
                 values.append(1 if value else 0)
             else:
                 values.append(value)
         
         values.append(user_id)
-        
         sql = f"UPDATE user SET {', '.join(set_parts)} WHERE user_id = ?"
         
         try:
             await self.conn.execute(sql, values)
             await self.conn.commit()
         except Exception as e:
-            logger.error(f"Ошибка SQL при обновлении user {user_id}: {e}")
+            logger.error(f"Ошибка обновления user {user_id}: {e}")
 
-    # --- Методы для FSM ---
+    # --- FSM ---
     async def update_fsm_storage(self, user_id: int, state=None, data=None):
         await self.conn.execute("INSERT OR IGNORE INTO fsm_storage (user_id, data) VALUES (?, ?)", (user_id, "{}"))
         if state is not None:
