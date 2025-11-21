@@ -9,7 +9,6 @@ def main_menu_keyboard(lang: str = "ru") -> ReplyKeyboardMarkup:
         'uk': ["💪 Мотивуй мене", "🎵 Ритм дня", "📜 Правила Всесвіту", "⚔️ Челендж дня", "👤 Профіль", "📊 Статистика", "⚙️ Налаштування"],
         'en': ["💪 Motivate me", "🎵 Rhythm of the day", "📜 Rules of Universe", "⚔️ Daily Challenge", "👤 Profile", "📊 Statistics", "⚙️ Settings"]
     }
-    # Если язык не найден, берем русский
     btns = labels.get(lang, labels['ru'])
     
     builder = ReplyKeyboardBuilder()
@@ -37,7 +36,7 @@ def get_cooldown_keyboard(lang: str = "ru") -> ReplyKeyboardMarkup:
     builder.row(KeyboardButton(text=t('btn_settings', lang)))
     return builder.as_markup(resize_keyboard=True)
 
-# --- ИНЛАЙН КЛАВИАТУРЫ (Те самые, которых не хватало) ---
+# --- ИНЛАЙН КЛАВИАТУРЫ (КОТОРЫХ НЕ ХВАТАЛО) ---
 
 def get_inline_feedback_keyboard(category: str) -> InlineKeyboardMarkup:
     """Клавиатура лайк/дизлайк"""
