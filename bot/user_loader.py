@@ -1,152 +1,107 @@
-import json
+# 4 - S:/fotinia_bot/user_loader.py
+# Загрузка данных и миграция
+
 import asyncio
-import os
-import aiofiles
-from typing import Dict, Any, List
+import json
+import os 
+import shutil
+import tempfile
+from typing import Dict, Any
 from pathlib import Path
 
-from config import logger, settings
-from database import db
-from localization import t, load_localization 
+from bot.database import db
+from config import logger, settings, FILE_MAPPING
 
-# --- Константы ---
-USERS_FILE = settings.USERS_FILE
-STATIC_DATA_PATH = settings.STATIC_DATA_FILE
-
-# =====================================================
-# 1. Загрузка статических данных (контент)
-# =====================================================
-
-async def load_static_data() -> Dict[str, Any]:
+# --- Адаптер для загрузки ---
+async def load_users_with_fix() -> Dict[str, Any]:
     """
-    Загружает статические данные из СТАРЫХ файлов (data_initial).
+    Загружает всех пользователей из БД при старте.
+    Запускает миграцию, если нужно (из users.json).
+    Возвращает кэш пользователей.
     """
-    load_localization() # Обновляем тексты локализации
+    # 1. Убеждаемся, что БД инициализирована
+    await db.connect()
     
-    data = {}
+    # 2. Миграция из старого JSON, если БД пуста
+    await db.migrate_from_json(settings.USERS_FILE)
     
-    # Ищем папку data_initial
-    base_paths = ["/app/data_initial", "data_initial", "bot/data_initial"]
-    folder = None
-    
-    for p in base_paths:
-        if os.path.exists(p):
-            folder = p
-            break
-    
-    if not folder:
-        logger.warning("⚠️ Папка data_initial не найдена. Используем заглушки.")
-        return {
-             "content": {
-                "morning": [{"text": "Проснись и пой!"}],
-                "ritm": [{"text": "Держи ритм!"}],
-                "motivations": [{"text": "Мотивация дня!"}],
-                "challenges": [{"text": "Челлендж: Сделай 10 приседаний."}]
-            }
-        }
+    # 3. Загружаем всех пользователей из БД в кэш
+    users = await db.get_all_users()
+    logger.info(f"📖 Loaded {len(users)} users from SQLite (cache).")
+    return users
 
-    # Карта: Ключ в боте -> Имя твоего старого файла
-    files_map = {
-        "rules": "universe_laws.json",
-        "motivations": "fotinia_motivations.json",
-        "ritm": "fotinia_ritm.json",
-        "challenges": "challenges.json",
-        "morning_phrases": "fotinia_morning_phrases.json",
-        "day_phrases": "fotinia_day_phrases.json",
-        "evening_phrases": "fotinia_evening_phrases.json",
-        "goals": "fotinia_goals.json"
-    }
-
-    logger.info(f"📂 Читаем старые файлы из: {folder}")
-
-    for key, filename in files_map.items():
-        path = os.path.join(folder, filename)
-        if os.path.exists(path):
-            try:
-                async with aiofiles.open(path, mode='r', encoding='utf-8') as f:
-                    content = await f.read()
-                    json_data = json.loads(content)
-                    data[key] = json_data
-                    logger.info(f"✅ Загружен {filename} ({len(json_data)} записей)")
-            except Exception as e:
-                logger.error(f"❌ Ошибка чтения {filename}: {e}")
-                data[key] = []
-        else:
-            logger.warning(f"⚠️ Файл не найден: {filename}")
-            data[key] = []
-
-    return data
-
-
-# =====================================================
-# 2. Загрузка пользователей (с миграцией из старого JSON в SQLite)
-# =====================================================
-
-async def load_users_with_fix() -> Dict[str, Dict[str, Any]]:
+# --- Адаптер для сохранения (JSON Emergency Dump) ---
+def save_users_sync(users_db: Dict[str, Any]) -> None:
     """
-    Загружает пользователей. Если есть старый JSON-файл, мигрирует данные в SQLite.
+    Синхронно сохраняет аварийный JSON-дамп (на случай сбоя БД).
     """
-    
-    # 1. Проверяем наличие старого JSON-бэкапа
-    if not USERS_FILE.exists():
-        logger.info("No old JSON user backup found. Relying solely on SQLite.")
-        return {}
-
     try:
-        # 2. Читаем старый JSON
-        with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            old_users_data = json.load(f)
-        
-        logger.info(f"Found old JSON backup: {len(old_users_data)} users. Starting migration to SQLite...")
-
-        # 3. Миграция в SQLite
-        for user_id_str, old_data in old_users_data.items():
-            try:
-                user_id = int(user_id_str)
-                
-                # Добавляем пользователя (если нет)
-                await db.add_user(user_id) 
-                
-                # Обновляем поля
-                update_data = {
-                    "username": old_data.get("username"),
-                    "first_name": old_data.get("full_name"), 
-                    "language": old_data.get("language"),
-                    "timezone": old_data.get("timezone"),
-                    "is_paid": old_data.get("is_paid", 0),
-                    "demo_expiration": old_data.get("demo_expiration"),
-                    "demo_cycles": old_data.get("demo_cycles", 0),
-                    "last_active": old_data.get("last_active"),
-                    "is_active": old_data.get("active", 1),
-                    "joined_at": old_data.get("joined_at"),
-                }
-                
-                # Чистим None значения
-                update_data = {k: v for k, v in update_data.items() if v is not None}
-                
-                await db.update_user(user_id, **update_data)
-            except Exception as mig_err:
-                logger.error(f"Error migrating user {user_id_str}: {mig_err}")
-        
-        # 4. Переименовываем файл, чтобы не мигрировать снова
-        try:
-            USERS_FILE.rename(USERS_FILE.with_suffix('.old_migrated.json'))
-            logger.info(f"✅ Migration complete. {len(old_users_data)} users processed.")
-        except OSError:
-             logger.warning("Could not rename old users file, but migration finished.")
-
+        # Убеждаемся, что папка существует
+        settings.DATA_DIR.mkdir(exist_ok=True)
+        # Сохраняем во временный файл
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=settings.DATA_DIR) as tmp:
+            # Сохраняем только данные (data), без FSM
+            clean_users_db = {uid: u for uid, u in users_db.items()}
+            json.dump(clean_users_db, tmp, ensure_ascii=False, indent=2)
+        # Атомарно перемещаем
+        shutil.move(tmp.name, settings.USERS_FILE)
+        logger.info("💾 Emergency JSON snapshot saved.")
     except Exception as e:
-        logger.error(f"❌ Error during user migration: {e}")
-        
-    return {} 
+        logger.error(f"❌ Emergency save failed: {e}")
 
+# --- Загрузка статического контента ---
+async def load_static_data() -> dict:
+    """Асинхронная обертка для загрузки статики."""
+    return await asyncio.to_thread(_load_static_data_sync)
 
-# =====================================================
-# 3. Синхронное сохранение (для совместимости)
-# =====================================================
-
-def save_users_sync(users_db_cache: Dict[str, Any]):
+def _load_static_data_sync() -> dict:
     """
-    Синхронное сохранение (заглушка, так как теперь SQLite).
+    Загружает весь статический контент (JSON-файлы) в кэш.
     """
-    pass
+    DATA_DIR = settings.DATA_DIR
+    
+    # 1. Копирование файлов из data_initial
+    source_data_dir = settings.DATA_INITIAL_DIR
+    if not source_data_dir.exists():
+        logger.warning(f"⚠️ data_initial not found at {source_data_dir}, skipping sync.")
+    else:
+        DATA_DIR.mkdir(exist_ok=True)
+        for filename in os.listdir(source_data_dir): 
+            if filename.endswith('.json') and filename != 'users.json':
+                shutil.copy2(source_data_dir / filename, DATA_DIR / filename)
+
+    static_data = {}
+    
+    def load_json(path):
+        if not path.exists(): return []
+        try:
+            with open(path, 'r', encoding='utf-8') as f: return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load static JSON {path.name}: {e}")
+            return []
+
+    # 2. Загрузка основных файлов
+    for key, filename in FILE_MAPPING.items():
+        # Ожидаем, что эти файлы содержат словари {lang: [items]}
+        raw_data = load_json(DATA_DIR / filename)
+        if isinstance(raw_data, dict):
+            static_data[key] = raw_data
+        else:
+            # Если это простой список, оборачиваем его в словарь по умолчанию
+            static_data[key] = {settings.DEFAULT_LANG: raw_data}
+
+    # 3. Загрузка челленджей (challenges*.json)
+    challenges = {}
+    for p in DATA_DIR.glob("challenges*.json"):
+        data = load_json(p)
+        if isinstance(data, dict):
+            # Объединяем челленджи по языкам из разных файлов
+            for l, items in data.items():
+                challenges.setdefault(l, []).extend(items)
+    static_data["challenges"] = challenges
+    
+    
+    rules_count = len(static_data.get('rules', {}).get(settings.DEFAULT_LANG, []))
+    motivations_count = len(static_data.get('motivations', {}).get(settings.DEFAULT_LANG, []))
+    logger.info(f"📚 Static data loaded. {rules_count} rules, {motivations_count} motivations.")
+    return static_data

@@ -1,123 +1,195 @@
-import aiosqlite
-import json
-import logging
-from config import settings
+# 3 - S:/fotinia_bot/bot/database.py
+# Менеджер базы данных SQLite
 
-logger = logging.getLogger(__name__)
+import json
+import aiosqlite
+from typing import Dict, Any, List, Optional
+from pathlib import Path
+from config import settings, logger
 
 class Database:
-    def __init__(self):
-        self.db_path = settings.DB_FILE
-        self.conn = None
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
 
+    async def _get_db(self):
+        """Возвращает подключение к БД с row_factory."""
+        db = await aiosqlite.connect(self.db_path)
+        db.row_factory = aiosqlite.Row
+        return db
+
+    async def connect(self):
+        """Создает подключение и таблицы."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    fsm_state TEXT,
+                    fsm_data TEXT
+                )
+            """)
+            try:
+                # Попытка добавить колонки, если их еще нет
+                await db.execute("ALTER TABLE users ADD COLUMN fsm_state TEXT")
+                await db.execute("ALTER TABLE users ADD COLUMN fsm_data TEXT")
+                logger.info("Database migration: Added FSM columns.")
+            except aiosqlite.OperationalError:
+                pass # Колонки уже существуют
+            
+            await db.commit()
+            logger.info("💾 Database connected and tables checked.")
+            
+    # Alias для connect
     async def init(self):
-        """Инициализация соединения и создание таблиц."""
-        logger.info("🚀 ЗАПУСК БАЗЫ ДАННЫХ (DICT FIX)...")
-        self.conn = await aiosqlite.connect(self.db_path)
-        self.conn.row_factory = aiosqlite.Row
-        await self._create_tables()
-        logger.info("📦 База данных (aiosqlite) успешно подключена.")
-
-    async def _create_tables(self):
-        """Создаем таблицы."""
-        await self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS user (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                language TEXT DEFAULT 'ru',
-                timezone TEXT DEFAULT 'Europe/Kiev',
-                is_active INTEGER DEFAULT 1,
-                last_active TEXT,
-                is_paid INTEGER DEFAULT 0,
-                demo_expiration TEXT,
-                demo_cycles INTEGER DEFAULT 0,
-                challenge_streak INTEGER DEFAULT 0,
-                content_sent INTEGER DEFAULT 0,
-                feedback_likes INTEGER DEFAULT 0,
-                feedback_dislikes INTEGER DEFAULT 0,
-                challenges TEXT DEFAULT '[]',
-                reacted_messages TEXT DEFAULT '[]'
-            );
-        """)
-        
-        await self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS fsm_storage (
-                user_id INTEGER PRIMARY KEY,
-                state TEXT,
-                data TEXT
-            );
-        """)
-        await self.conn.commit()
-
-    async def get_user(self, user_id: int):
-        """Получить одного пользователя по ID."""
-        async with self.conn.execute("SELECT * FROM user WHERE user_id = ?", (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return dict(row)
-            return None
-
-    async def get_all_users(self):
-        """
-        Получить ВСЕХ пользователей.
-        ВАЖНО: Возвращаем словарь {str(user_id): data}, чтобы scheduler не падал.
-        """
-        async with self.conn.execute("SELECT * FROM user") as cursor:
-            rows = await cursor.fetchall()
-            # Превращаем список строк БД в словарь: "12345": {данные}
-            return {str(row["user_id"]): dict(row) for row in rows}
-
-    async def update_user(self, user_id: int, **kwargs):
-        """Обновляем пользователя."""
-        if not kwargs:
-            return
-        
-        await self.conn.execute("INSERT OR IGNORE INTO user (user_id) VALUES (?)", (user_id,))
-        
-        set_parts = []
-        values = []
-        
-        for key, value in kwargs.items():
-            set_parts.append(f"{key} = ?")
-            if isinstance(value, (list, dict)):
-                values.append(json.dumps(value, ensure_ascii=False))
-            elif isinstance(value, bool):
-                values.append(1 if value else 0)
-            else:
-                values.append(value)
-        
-        values.append(user_id)
-        sql = f"UPDATE user SET {', '.join(set_parts)} WHERE user_id = ?"
-        
-        try:
-            await self.conn.execute(sql, values)
-            await self.conn.commit()
-        except Exception as e:
-            logger.error(f"Ошибка обновления user {user_id}: {e}")
-
-    # --- FSM ---
-    async def update_fsm_storage(self, user_id: int, state=None, data=None):
-        await self.conn.execute("INSERT OR IGNORE INTO fsm_storage (user_id, data) VALUES (?, ?)", (user_id, "{}"))
-        if state is not None:
-             await self.conn.execute("UPDATE fsm_storage SET state = ? WHERE user_id = ?", (state, user_id))
-        if data is not None:
-             json_data = json.dumps(data, ensure_ascii=False)
-             await self.conn.execute("UPDATE fsm_storage SET data = ? WHERE user_id = ?", (json_data, user_id))
-        await self.conn.commit()
-
-    async def get_fsm_storage(self, user_id: int):
-        async with self.conn.execute("SELECT state, data FROM fsm_storage WHERE user_id = ?", (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return {
-                    "state": row["state"],
-                    "data": json.loads(row["data"]) if row["data"] else {}
-                }
-            return {"state": None, "data": {}}
+        await self.connect()
 
     async def close(self):
-        if self.conn:
-            await self.conn.close()
+        """Заглушка, чтобы соответствовать интерфейсу Aiogram Storage."""
+        pass 
 
-db = Database()
+    async def migrate_from_json(self, json_path: Path):
+        if not json_path.exists():
+            return
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT COUNT(*) FROM users") as cursor:
+                count = (await cursor.fetchone())[0]
+                if count > 0:
+                    logger.info("💾 Database is not empty. Skipping migration.")
+                    return
+
+            logger.info(f"🔄 Starting migration from {json_path}...")
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                users_to_insert = []
+                for user_id_str, user_data in data.items():
+                    try:
+                        uid = int(user_id_str)
+                        users_to_insert.append((uid, json.dumps(user_data, ensure_ascii=False)))
+                    except ValueError:
+                        continue
+                
+                if users_to_insert:
+                    await db.executemany(
+                        "INSERT OR REPLACE INTO users (user_id, data) VALUES (?, ?)",
+                        users_to_insert
+                    )
+                    await db.commit()
+                    logger.info(f"✅ Migrated {len(users_to_insert)} users from JSON to SQLite.")
+                    
+            except Exception as e:
+                logger.error(f"❌ Migration failed: {e}")
+
+    async def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Получает данные пользователя (data) как словарь."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT data FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return json.loads(row["data"])
+        return None
+
+    async def get_fsm_storage(self, user_id: int) -> Dict[str, Any]:
+        """Получает FSM state и data."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT fsm_state, fsm_data FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row and row["fsm_state"]:
+                    return {
+                        "state": row["fsm_state"],
+                        "data": json.loads(row["fsm_data"] or "{}")
+                    }
+        return {"state": None, "data": {}}
+
+    async def update_fsm_storage(self, user_id: int, state: Optional[str] = None, data: Optional[Dict] = None):
+        """Обновляет FSM state и data."""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Если state None, то это очистка FSM.
+            await db.execute(
+                "UPDATE users SET fsm_state = ?, fsm_data = ? WHERE user_id = ?",
+                (state, json.dumps(data or {}), user_id)
+            )
+            await db.commit()
+
+    async def update_user(self, user_id: int, **kwargs):
+        """Точечно обновляет поля в user_data (JSON)."""
+        if not kwargs:
+            return
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT data FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    # Если юзера нет, добавляем заглушку, но в этом случае user_data не обновится
+                    logger.warning(f"update_user: User {user_id} not found to update.")
+                    return
+                try:
+                    user_data = json.loads(row["data"])
+                except Exception:
+                    user_data = {}
+
+            user_data.update(kwargs)
+            
+            json_data = json.dumps(user_data, ensure_ascii=False)
+            await db.execute(
+                "UPDATE users SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                (json_data, user_id)
+            )
+            await db.commit()
+
+    async def add_user(self, user_id: int, username: Optional[str], full_name: str, language: str, timezone: str):
+        """Добавляет нового пользователя (вызывается из Middleware)."""
+        new_user_data = {
+            "id": user_id,
+            "username": username,
+            "name": full_name,
+            "language": language,
+            "timezone": timezone,
+            "active": True,
+            "demo_count": 0,
+            "demo_expiration": None,
+            "challenge_streak": 0,
+            "challenges": [],
+            "last_challenge_date": None,
+            "last_rules_date": None,
+            "rules_shown_count": 0,
+            "rules_indices_today": [],
+            "sent_expiry_warning": False,
+            "is_paid": False,
+            "stats_likes": 0,
+            "stats_dislikes": 0,
+            "status": "new"
+        }
+        json_data = json.dumps(new_user_data, ensure_ascii=False)
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO users (user_id, data) VALUES (?, ?)",
+                (user_id, json_data)
+            )
+            await db.commit()
+
+    async def get_all_users(self) -> Dict[str, Any]:
+        """Загружает ВСЕХ пользователей в память (для админки и кэша рассылок)."""
+        users_dict = {}
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT user_id, data FROM users") as cursor:
+                async for row in cursor:
+                    try:
+                        user_id = str(row["user_id"])
+                        user_data = json.loads(row["data"])
+                        users_dict[user_id] = user_data
+                    except Exception as e:
+                        logger.error(f"Error loading user {row['user_id']}: {e}")
+                        continue
+        return users_dict
+
+db = Database(settings.DB_FILE)

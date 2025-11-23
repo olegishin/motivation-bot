@@ -10,19 +10,21 @@ from aiogram import BaseMiddleware, Bot
 from aiogram.types import Message, CallbackQuery, Update
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 
-# ✅ ИСПРАВЛЕНО: прямые импорты
+# --- Импорты ---
 from config import logger, settings, DEFAULT_TZ, SPECIAL_USER_IDS
 from localization import t, Lang
-from database import db
+from database import db # ✅ Импорт
 
 # =====================================================
 # 1. Вспомогательные функции
 # =====================================================
 
 def is_admin(chat_id: int) -> bool:
+    """Проверяет, является ли пользователь админом."""
     return chat_id == settings.ADMIN_CHAT_ID
 
 def is_demo_expired(user_data: dict) -> bool:
+    """Проверяет, истек ли демо-период."""
     if not user_data: return True
     if user_data.get("is_paid"): return False
     demo_exp = user_data.get("demo_expiration")
@@ -34,12 +36,14 @@ def is_demo_expired(user_data: dict) -> bool:
         return True
 
 def get_user_lang(user_data: dict) -> Lang:
+    """Возвращает язык пользователя."""
     lang_code = user_data.get("language", settings.DEFAULT_LANG)
     if lang_code not in ("ru", "ua", "en"):
         return settings.DEFAULT_LANG
     return lang_code # type: ignore
 
 def get_user_tz(user_data: dict) -> ZoneInfo:
+    """Возвращает часовой пояс пользователя."""
     user_tz_key = user_data.get("timezone", settings.DEFAULT_TZ_KEY)
     try:
         return ZoneInfo(user_tz_key)
@@ -47,6 +51,7 @@ def get_user_tz(user_data: dict) -> ZoneInfo:
         return DEFAULT_TZ 
 
 def get_tz_from_lang(lang_code: str | None) -> str:
+    """Автоматически определяет TZ по языку."""
     if not lang_code: return settings.DEFAULT_TZ_KEY
     lang_code = lang_code.lower()
     if lang_code.startswith('ru'): return "Europe/Moscow"
@@ -55,16 +60,19 @@ def get_tz_from_lang(lang_code: str | None) -> str:
 
 # --- Хелперы для ролей ---
 def get_demo_days(chat_id: int) -> int:
+    """Получает количество дней демо для пользователя."""
     if chat_id in settings.SIMULATOR_USER_IDS: return 2
     if chat_id in settings.TESTER_USER_IDS: return settings.TESTER_DEMO_DAYS
     return settings.REGULAR_DEMO_DAYS
 
 def get_cooldown_days(chat_id: int) -> int:
+    """Получает количество дней кулдауна."""
     if chat_id in settings.SIMULATOR_USER_IDS: return 1
     if chat_id in settings.TESTER_USER_IDS: return settings.TESTER_COOLDOWN_DAYS
     return settings.REGULAR_COOLDOWN_DAYS
 
 def get_max_demo_cycles(chat_id: int) -> int:
+    """Получает максимальное количество циклов демо."""
     if chat_id in settings.SIMULATOR_USER_IDS: return 2
     if chat_id in settings.TESTER_USER_IDS: return 999
     return settings.MAX_DEMO_CYCLES
@@ -74,13 +82,17 @@ def get_max_demo_cycles(chat_id: int) -> int:
 # =====================================================
 
 async def safe_send(bot: Bot, chat_id: int, text: str, **kwargs) -> bool:
+    """Безопасная отправка сообщения с обработкой ошибок Telegram."""
     try:
+        # Убедимся, что parse_mode="HTML" используется по умолчанию
         if "parse_mode" not in kwargs:
             kwargs["parse_mode"] = "HTML"
+            
         await bot.send_message(chat_id=chat_id, text=text, **kwargs)
         return True
     except TelegramForbiddenError:
         logger.warning(f"Bot blocked by {chat_id}.")
+        # Используем 'active' как имя поля в базе
         await db.update_user(chat_id, active=False) 
     except TelegramRetryAfter as e:
         await asyncio.sleep(e.retry_after)
@@ -91,7 +103,7 @@ async def safe_send(bot: Bot, chat_id: int, text: str, **kwargs) -> bool:
 
 
 # =====================================================
-# 3. Middleware
+# 3. Middleware — Access Control
 # =====================================================
 
 class AccessMiddleware(BaseMiddleware):
@@ -105,6 +117,7 @@ class AccessMiddleware(BaseMiddleware):
         user: Optional[Any] = None
         message: Optional[Message] = None
         
+        # Определяем, откуда пришел запрос
         if event.message:
             user = event.message.from_user
             message = event.message
@@ -117,11 +130,15 @@ class AccessMiddleware(BaseMiddleware):
 
         chat_id = user.id
         
+        # 1. Получаем данные пользователя
         user_data = await db.get_user(chat_id)
         is_new_user = not bool(user_data)
         
+        # 2. Регистрация нового пользователя
         if is_new_user:
             lang_code = user.language_code if user.language_code in ["ru", "ua", "en"] else "ru"
+            
+            # Добавляем пользователя в базу (это происходит до /start)
             await db.add_user(
                 user_id=chat_id,
                 username=user.username,
@@ -129,11 +146,13 @@ class AccessMiddleware(BaseMiddleware):
                 language=lang_code,
                 timezone=get_tz_from_lang(lang_code)
             )
-            user_data = await db.get_user(chat_id)
+            
+            user_data = await db.get_user(chat_id) # Читаем его обратно
 
         lang = get_user_lang(user_data)
         is_admin_flag = is_admin(chat_id)
 
+        # 3. Вставляем в data
         data.update({
             "user_data": user_data,
             "lang": lang,
@@ -141,15 +160,19 @@ class AccessMiddleware(BaseMiddleware):
             "is_new_user": is_new_user
         })
 
+        # 4. Проверка доступа (только для сообщений)
         if message and message.text:
             text = message.text
 
+            # Заблокированный пользователь
             if user_data.get("active") is False and not is_admin_flag:
                 return
 
+            # Админ / платный / спец — полный доступ
             if is_admin_flag or chat_id in SPECIAL_USER_IDS or user_data.get("is_paid", False):
                 return await handler(event, data)
 
+            # Разрешённые команды/кнопки (для неактивных/просроченных)
             allowed_cmds = ("/start", "/language", "/timezone", "/cancel", "/pay")
             allowed_btns = (
                 t('btn_pay_premium', lang),
@@ -161,14 +184,17 @@ class AccessMiddleware(BaseMiddleware):
             if any(text.startswith(cmd) for cmd in allowed_cmds) or text in allowed_btns:
                 return await handler(event, data)
 
+            # Демо активно — пропускаем
             if not is_demo_expired(user_data):
                 return await handler(event, data)
 
+            # Демо истёк — показываем сообщение
             logger.info(f"Access denied for {chat_id} — demo expired")
             
-            # ✅ ИСПРАВЛЕНО: убрали bot.
-            from content_handlers import handle_expired_demo
+            # Импорт тут, чтобы избежать циклической зависимости
+            from bot.content_handlers import handle_expired_demo
             await handle_expired_demo(message, user_data, lang)
             return
 
+        # Для callback_query, инлайн-кнопок и других апдейтов — просто пропускаем
         return await handler(event, data)

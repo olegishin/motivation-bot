@@ -1,171 +1,149 @@
-# bot/scheduler.py
+# 5 - S:/fotinia_bot/bot/scheduler.py
+# Планировщик фоновых задач APScheduler
+
 import asyncio
+import shutil
+import tempfile
+import os
+import json
+import random
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from zoneinfo import ZoneInfo
+from typing import List, Any, Dict
 
 from aiogram import Bot
+from aiogram.types import FSInputFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.jobstores.base import JobLookupError
 
-from config import logger, settings
-# Импорт t и Lang
-from localization import t, Lang 
-from database import db
-# Все эти функции должны быть в utils.py
-from utils import is_time_for_user, get_current_user_dt, is_premium_active, get_user_tz, is_demo_expired
-# ✅ КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Импортируем модуль целиком, чтобы избежать ошибок циклического импорта
-import content_handlers 
+# ✅ ИСПРАВЛЕНО: прямые импорты
+from config import logger, settings, SPECIAL_USER_IDS
+from localization import t, DEFAULT_LANG
+from database import db 
+import keyboards as keyboards 
+import utils as utils 
 
-# --- Константы ---
-scheduler = AsyncIOScheduler()
-BROADCAST_INTERVAL_MINUTES = 60 * 6 # 6 часов
-BROADCAST_JOB_ID = "daily_broadcast"
-DEFAULT_LANG = settings.DEFAULT_LANG # Берем из настроек
+DB_FILE = settings.DB_FILE 
+ADMIN_CHAT_ID = settings.ADMIN_CHAT_ID
+DATA_DIR = settings.DATA_DIR
 
-# --- Кеш пользователей для планировщика ---
-# Этот кэш будет содержать только user_id, is_paid, timezone и language
-USERS_CACHE: Dict[int, Dict[str, Any]] = {} 
-STATIC_CONTENT: Dict[str, Any] = {}
+scheduler = AsyncIOScheduler(timezone="UTC")
 
+def safe_choice(items: List[Any]) -> Any | None:
+    if not items: return None
+    return random.choice(items)
 
-# =====================================================
-# 1. СТАРТ и ОБНОВЛЕНИЕ ПЛАНИРОВЩИКА
-# =====================================================
+def _is_user_active_for_broadcast(chat_id: int, user_data: dict) -> bool:
+    if not user_data.get("active"): return False
+    if chat_id in SPECIAL_USER_IDS: return True
+    if user_data.get("is_paid"): return True
+    if not utils.is_demo_expired(user_data): return True
+    if user_data.get("status") == "awaiting_renewal": return False 
+    return False
 
-async def update_user_cache_and_jobs(bot: Bot):
-    """Обновляет кэш пользователей из БД и обновляет расписание."""
-    global USERS_CACHE, STATIC_CONTENT
+async def centralized_broadcast_job(bot: Bot, users_db: dict, static_data: dict):
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    schedules = [(8, "morning_phrases"), (12, "goals"), (15, "day_phrases"), (18, "evening_phrases")]
+    tasks = []
     
-    # 1. Обновляем кэш из БД (берем только нужные поля)
-    all_users_data = await db.get_all_users()
+    logger.debug(f"Running broadcast_job for {len(users_db)} users (from cache).")
     
-    # Конвертируем ключи из str в int и фильтруем поля
-    new_cache = {}
-    for user_id_str, data in all_users_data.items():
-        user_id = int(user_id_str)
-        
-        # Получаем данные, необходимые для шедулера
-        new_cache[user_id] = {
-            'language': data.get('language', DEFAULT_LANG),
-            'timezone': data.get('timezone', settings.DEFAULT_TZ_KEY),
-            'is_paid': data.get('is_paid', 0),
-            'demo_expiration': data.get('demo_expiration'),
-            'is_active': data.get('is_active', 1),
-            'first_name': data.get('first_name', 'друг')
-        }
-        
-    USERS_CACHE = new_cache
-    logger.info(f"✅ Scheduler user cache updated: {len(USERS_CACHE)} users.")
-
-    # 2. Перезапускаем основное задание рассылки
-    if scheduler.running:
-        try:
-            scheduler.remove_job(BROADCAST_JOB_ID)
-            logger.info(f"☑️ Removed old broadcast job: {BROADCAST_JOB_ID}")
-        except JobLookupError:
-            pass # Если задания не было, это нормально
+    for hour, key in schedules:
+        data = static_data.get(key, {}) 
+        for chat_id_str, user_data in users_db.items():
+            try: chat_id = int(chat_id_str)
+            except ValueError: continue
+                
+            if not _is_user_active_for_broadcast(chat_id, user_data): continue
             
-    # Добавляем задание рассылки, которое будет запускаться каждые X минут
-    scheduler.add_job(
-        run_broadcast,
-        IntervalTrigger(minutes=BROADCAST_INTERVAL_MINUTES),
-        id=BROADCAST_JOB_ID,
-        name="Main Broadcast Job",
-        args=[bot]
-    )
-    logger.info(f"🚀 Main broadcast job added: every {BROADCAST_INTERVAL_MINUTES} minutes.")
-
-async def setup_jobs_and_cache(bot: Bot, users_db_cache: Dict[str, Any], static_data: Dict[str, Any]):
-    """Первоначальная настройка планировщика и кэша."""
-    global STATIC_CONTENT
+            try:
+                user_tz = utils.get_user_tz(user_data)
+                user_lang = utils.get_user_lang(user_data)
+                
+                if now_utc.astimezone(user_tz).hour == hour:
+                    lang_specific_phrases = data.get(user_lang, data.get(DEFAULT_LANG, []))
+                    if not lang_specific_phrases: continue
+                        
+                    phrase = (safe_choice(lang_specific_phrases) or "").format(name=user_data.get("name", "друг"))
+                    reaction_keyboard = keyboards.get_broadcast_keyboard(user_lang)
+                    tasks.append(utils.safe_send(bot, chat_id, phrase, reply_markup=reaction_keyboard))
+            except Exception as e: 
+                logger.error(f"Error in broadcast loop for {chat_id_str}: {e}")
     
-    # 1. Загружаем статический контент
-    STATIC_CONTENT = static_data
+    if tasks:
+        results = await asyncio.gather(*tasks)
+        if (sent_count := sum(1 for res in results if res)) > 0:
+            logger.info(f"📢 Broadcast done. Sent {sent_count} messages.")
+
+async def check_demo_expiry_job(bot: Bot, users_db: dict):
+    logger.debug("Running check_demo_expiry_job...")
+    now_utc = datetime.now(ZoneInfo("UTC"))
     
-    # 2. Обновляем кэш пользователей и настраиваем job
-    await update_user_cache_and_jobs(bot)
-
-    # 3. Запускаем планировщик, если он еще не запущен
-    if not scheduler.running:
-        scheduler.start()
-        logger.info("▶️ APScheduler started.")
-
-
-# =====================================================
-# 2. ЗАДАНИЕ НА РАССЫЛКУ
-# =====================================================
-
-async def run_broadcast(bot: Bot):
-    """
-    Основное задание, которое запускается периодически и отправляет
-    контент соответствующим пользователям.
-    """
-    logger.info("🔄 Running main broadcast job...")
-
-    users_to_update_list = list(USERS_CACHE.keys())
-    
-    # Разделяем пользователей на чанки, чтобы избежать таймаутов
-    chunk_size = 50 
-    for i in range(0, len(users_to_update_list), chunk_size):
-        chunk = users_to_update_list[i:i + chunk_size]
+    for chat_id_str, user_data in users_db.items():
+        try: chat_id = int(chat_id_str)
+        except ValueError: continue
         
-        tasks = [
-            send_content_to_single_user(bot, user_id)
-            for user_id in chunk
-        ]
-        
-        await asyncio.gather(*tasks)
-        await asyncio.sleep(2) # Задержка между чанками для соблюдения лимитов Telegram
+        if chat_id in SPECIAL_USER_IDS: continue
+        if user_data.get("is_paid") or not user_data.get("active") or user_data.get("sent_expiry_warning"): continue
+            
+        demo_exp_str = user_data.get("demo_expiration")
+        if not demo_exp_str: continue
+            
+        try:
+            exp_dt = datetime.fromisoformat(demo_exp_str).replace(tzinfo=ZoneInfo("UTC"))
+            time_left = exp_dt - now_utc
+            warning_hours = 24 
+            
+            if timedelta(hours=0) < time_left <= timedelta(hours=warning_hours):
+                logger.info(f"Demo expiring soon for user {chat_id}.")
+                lang = utils.get_user_lang(user_data)
+                await utils.safe_send(bot, chat_id, t('demo_expiring_soon_h', lang=lang, name=user_data.get("name", "друг"), hours=warning_hours))
+                await db.update_user(chat_id, sent_expiry_warning=True)
+                user_data["sent_expiry_warning"] = True 
+        except Exception as e:
+            logger.error(f"Error in expiry check for {chat_id}: {e}")
 
-    logger.info("✅ Main broadcast job finished.")
-
-
-async def send_content_to_single_user(bot: Bot, user_id: int):
-    """Отправляет один тип контента, если время подходит."""
-    user_data = USERS_CACHE.get(user_id)
-
-    if not user_data or not user_data.get('is_active'):
-        # Пропускаем неактивных или несуществующих пользователей
+async def backup_job(bot: Bot):
+    logger.info(f"[Backup Service] Starting DB backup...")
+    if not DB_FILE.exists():
+        logger.warning("[Backup Service] DB file not found, skipping backup.")
         return
 
-    # 1. Проверка демо-статуса
-    # is_premium_active берется из utils
-    is_active_premium = is_premium_active(user_data)
-    if not is_active_premium and is_demo_expired(user_data):
-        # Если демо истекло, но пользователь не Premium, рассылку не отправляем
-        return 
-
-    # 2. Проверка времени
-    timezone_key = user_data.get('timezone', settings.DEFAULT_TZ_KEY)
-    user_tz = get_user_tz(user_data)
-    current_dt = get_current_user_dt(user_tz)
+    BACKUP_DIR = DATA_DIR / "backups"
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_filename = f"fotinia_{timestamp}.db" 
+    backup_path = BACKUP_DIR / backup_filename
     
-    # Получаем категорию, для которой пришло время (morning, ritm, evening)
-    category = is_time_for_user(user_id, current_dt, user_tz)
-
-    if category:
+    try:
+        BACKUP_DIR.mkdir(exist_ok=True) 
+        shutil.copy2(DB_FILE, backup_path)
+        logger.info(f"[Backup Service] ✅ DB backup created: {backup_path}")
         try:
-            # Получаем контент (теперь вызываем через модуль content_handlers)
-            content, category_title = content_handlers.get_random_content_for_user(
-                user_id,
-                user_data.get('language', DEFAULT_LANG),
-                category,
-                STATIC_CONTENT
+            await bot.send_document(
+                chat_id=ADMIN_CHAT_ID,
+                document=FSInputFile(backup_path),
+                caption=f"📦 <b>DB Backup</b>\n📅 {timestamp}",
+                parse_mode="HTML"
             )
-            
-            if content:
-                # Отправляем сообщение
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=f"<b>{category_title}</b>\n\n{content}",
-                    parse_mode="HTML" # Добавлено для безопасности
-                    # reply_markup=get_inline_feedback_keyboard(category) 
-                )
-                
-                # Обновляем статистику активности (опционально, можно вынести в миддлварь)
-                await db.update_user(user_id, last_active=datetime.now().isoformat())
-                logger.info(f"🚀 Sent '{category}' to user {user_id} ({current_dt.strftime('%H:%M')} in {timezone_key})")
+        except Exception as e_tg:
+            logger.error(f"[Backup Service] ⚠️ Failed to send to Telegram: {e_tg}")
 
-        except Exception as e:
-            logger.error(f"❌ Error sending {category} to user {user_id}: {e}")
+        all_backups = sorted(BACKUP_DIR.glob("fotinia_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old_backup in all_backups[10:]: old_backup.unlink(missing_ok=True)
+            
+    except Exception as e:
+        logger.error(f"[Backup Service] ❌ Backup failed: {e}")
+
+async def setup_jobs_and_cache(bot: Bot, users_db: dict, static_data: dict):
+    logger.info("Configuring APScheduler...")
+    broadcast_kwargs = {"bot": bot, "users_db": users_db, "static_data": static_data}
+    demo_check_kwargs = {"bot": bot, "users_db": users_db}
+    backup_kwargs = {"bot": bot} 
+    
+    scheduler.remove_all_jobs()
+    scheduler.add_job(centralized_broadcast_job, trigger="cron", hour="*", minute=0, kwargs=broadcast_kwargs)
+    scheduler.add_job(check_demo_expiry_job, trigger="cron", hour="*", minute=2, kwargs=demo_check_kwargs)
+    scheduler.add_job(backup_job, trigger="cron", hour="*/6", minute=5, kwargs=backup_kwargs)
+    
+    if not scheduler.running:
+        scheduler.start()
+        logger.info("APScheduler started.")

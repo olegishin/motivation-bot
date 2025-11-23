@@ -1,30 +1,25 @@
-# Используем официальный образ Python 3.11
 FROM python:3.11-slim
 
-# Устанавливаем рабочую директорию внутри контейнера
+# 1. Рабочая директория - КОРЕНЬ проекта
 WORKDIR /app
 
-# Настраиваем переменные окружения для корректного вывода логов и часового пояса
+# 2. Настройки окружения и часовой пояс (твои настройки)
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV TZ=Europe/Kiev
 
-# Устанавливаем пакет tzdata для работы с часовыми поясами
+# 3. Установка системных пакетов (tzdata нужна для TZ=Europe/Kiev)
 RUN apt-get update && apt-get install -y tzdata && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Копируем файл с зависимостями и устанавливаем их
+# 4. Зависимости
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем контент из локальной папки 'data_initial'
-COPY data_initial/ /app/data_initial/
+# 5. Копируем ВЕСЬ проект (и bot, и config.py, и data_initial)
+COPY . .
 
-# Копируем ВСЮ папку 'bot'
-COPY bot/ /app/bot/
+# 6. Создаем папку для базы данных (важно для Fly.io volumes)
+RUN mkdir -p data
 
-# ✅ НОВОЕ: Явно копируем шаблоны (на всякий случай, хотя COPY bot/ должно хватить, но так надежнее)
-COPY bot/templates/ /app/bot/templates/
-
-# Эта команда CMD соответствует тому, что ожидает fly.toml
-# (Uvicorn будет запущен из /app/bot, поэтому путь "main:app" - верный)
-WORKDIR /app/bot
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# 7. Запуск от корня. Обращаемся к bot.main
+CMD ["uvicorn", "bot.main:app", "--host", "0.0.0.0", "--port", "8080"]
