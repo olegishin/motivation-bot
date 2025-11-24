@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import urllib.parse
 
-from bot.localization import t, Lang
-from bot.config import settings
-from bot.utils import is_admin, is_demo_expired, get_cooldown_days, get_max_demo_cycles
+from .localization import t, Lang
+from .config import settings
+# ✅ ИСПРАВЛЕНО: Импорт с префиксом bot.
+from .utils import is_admin, is_demo_expired, get_cooldown_days, get_max_demo_cycles 
 
 def get_main_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
@@ -82,11 +83,25 @@ def get_lang_keyboard() -> InlineKeyboardMarkup:
     builder.adjust(1)
     return builder.as_markup()
 
-def get_broadcast_keyboard(lang: Lang) -> InlineKeyboardMarkup:
+# ✅ ИСПРАВЛЕНО: Теперь кнопка "Поделиться" принимает текст и использует новые шаблоны.
+def get_broadcast_keyboard(lang: Lang, quote_text: str | None = None) -> InlineKeyboardMarkup:
+    """
+    Генерирует инлайн-клавиатуру для рассылок с кнопкой "Поделиться".
+    quote_text: Текст сообщения, который нужно процитировать при шаринге.
+    """
     bot_link = f"https://t.me/{settings.BOT_USERNAME}"
-    share_text = t('share_text_template', lang, bot_username=settings.BOT_USERNAME)
+    
+    # Логика выбора шаблона для шаринга
+    if quote_text:
+         # Используем шаблон с цитатой ("🔥 {quote}\n\nПосмотри...")
+         share_text = t('share_text_with_quote', lang, quote=quote_text, bot_username=settings.BOT_USERNAME)
+    else:
+         # Используем общий шаблон ("Посмотри, какое сообщение...")
+         share_text = t('share_text_full', lang, bot_username=settings.BOT_USERNAME) 
+
     encoded_text = urllib.parse.quote_plus(share_text)
     share_url = f"https://t.me/share/url?url={bot_link}&text={encoded_text}"
+    
     builder = InlineKeyboardBuilder()
     builder.button(text="👍", callback_data="reaction:like")
     builder.button(text="👎", callback_data="reaction:dislike")

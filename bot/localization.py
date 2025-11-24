@@ -2,7 +2,8 @@
 # Локализация и переводы.
 
 from typing import Literal, Dict
-from bot.config import settings, logger # Импортируем logger и settings
+# ✅ ИСПРАВЛЕНИЕ: Прямой абсолютный импорт к корневому модулю config.
+from config import settings, logger 
 
 # Типизация для языков
 Lang = Literal["ru", "ua", "en"]
@@ -40,8 +41,14 @@ translations: Dict[Lang, Dict[str, str]] = {
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
         "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите **245 грн** на эту Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека нашему менеджеру: **@fotinia_admin**. Он увидит его и активирует ваш доступ вручную.",
         "pay_api_success_test": "✅ {name}, добро пожаловать в Premium! (Тест API)\nЯ буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение). Нажмите /start.",
-        "share_text_template": "Посмотри, какой бот мне помогает двигаться к цели! @{bot_username}",
-        "reaction_received": "Благодарю за твою реакцию, {name}!",
+        
+        # --- ИСПРАВЛЕНИЯ РЕАКЦИЙ И ШАРИНГА (Новые ключи) ---
+        "share_text_template": "Посмотри, какой бот мне помогает двигаться к цели! @{bot_username}", 
+        "reaction_received": "Благодарю за твою реакцию, {name}!", 
+        "reaction_already_accepted": "{name}, твоя информация уже принята.", # <-- ДОБАВЛЕНО
+        "share_text_full": "Посмотри, какое сообщение сегодня прислал мне мой бот, который помогает мне быть на позитиве и двигаться к цели!\nПопробуй и ты, это интересно :-)\n@{bot_username}", # <-- ДОБАВЛЕНО
+        "share_text_with_quote": "🔥 {quote}\n\nПосмотри, какое сообщение сегодня прислал мне мой бот, который помогает мне быть на позитиве и двигаться к цели!\nПопробуй и ты, это интересно :-)\n@{bot_username}", # <-- ДОБАВЛЕНО
+        
         "profile_title": "👤 <b>Ваш профиль:</b>",
         "profile_name": "📛 Имя",
         "profile_challenges_accepted": "⚔️ Принято челленджей",
@@ -57,7 +64,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "list_error_index": "⚠️ Произошла ошибка при выборе элемента из списка '{title}'. Список может быть пуст.",
         "list_error_unexpected": "⚠️ Произошла непредвиденная ошибка при отправке '{title}'.",
         "list_error_data": "⚠️ Ошибка данных для '{title}'. Обратитесь к администратору.",
-        "challenge_already_issued": "⏳ Вы уже приняли челленддж на сегодня.",
+        "challenge_already_issued": "⏳ Вы уже приняли челлендж на сегодня.",
         "challenge_pending_acceptance": "🔥 У вас уже есть активный челлендж. Примите его или нажмите 'Новый' в сообщении выше.",
         "challenge_accepted_msg": "💪 <b>Челлендж принят:</b>\n\n<i>{challenge_text}</i>",
         "challenge_completed_msg": "✅ Отлично! Челлендж выполнен!",
@@ -136,8 +143,14 @@ translations: Dict[Lang, Dict[str, str]] = {
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
         "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть **245 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека нашому менеджеру: **@fotinia_admin**. Він побачить його та активує ваш доступ вручну.",
         "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення). Натисніть /start.",
-        "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}",
-        "reaction_received": "Дякую за твою реакцію, {name}!",
+        
+        # --- ИСПРАВЛЕНИЯ РЕАКЦИЙ И ШАРИНГА (Новые ключи) ---
+        "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}", 
+        "reaction_received": "Дякую за твою реакцію, {name}!", 
+        "reaction_already_accepted": "{name}, твоя інформація вже прийнята.", # <-- ДОБАВЛЕНО
+        "share_text_full": "Подивись, яке повідомлення сьогодні надіслав мені мій бот, який допомагає мені бути на позитиві та рухатися до мети!\nСпробуй і ти, це цікаво :-)\n@{bot_username}", # <-- ДОБАВЛЕНО
+        "share_text_with_quote": "🔥 {quote}\n\nПодивись, яке повідомлення сьогодні надіслав мені мій бот, який допомагає мені бути на позитиві та рухатися до мети!\nСпробуй і ти, це цікаво :-)\n@{bot_username}", # <-- ДОБАВЛЕНО
+
         "profile_title": "👤 <b>Ваш профіль:</b>",
         "profile_name": "📛 Ім'я",
         "profile_challenges_accepted": "⚔️ Прийнято челенджів",
@@ -188,7 +201,6 @@ translations: Dict[Lang, Dict[str, str]] = {
         "btn_challenge_accept": "✅ Прийняти", "btn_challenge_new": "🎲 Новий",
         "btn_challenge_complete": "✅ Виконано",
         
-        # ✅ ДОБАВЛЕНО ДЛЯ НАСТРОЕК
         "btn_settings": "⚙️ Налаштування",
         "btn_back": "↩️ Назад",
         "msg_choose_action": "Оберіть дію:",
@@ -229,10 +241,16 @@ translations: Dict[Lang, Dict[str, str]] = {
         "demo_expired_final": "👋 {name}!\n🔒 <b>Your trial periods have ended.</b>\n\nTo resume access, please activate your Premium subscription. 👇",
         "demo_awaiting_renewal": "Got it. Your demo period will resume in **{hours}h {minutes}m**.\n\nBroadcasts are disabled in standby mode, but you can activate Premium at any time.",
         "pay_info": "💳 For full access, please contact the administrator.",
-        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message).\n\nTo activate, please transfer **245 UAH** to this Monobank 'Banka' (jar):\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**IMPORTANT:** After payment, please send a screenshot of the receipt to our manager: **@fotinia_admin**. They will see it and activate your access manually.",
+        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
         "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
-        "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}",
-        "reaction_received": "Thank you for your reaction, {name}!",
+        
+        # --- ИСПРАВЛЕНИЯ РЕАКЦИЙ И ШАРИНГА (Новые ключи) ---
+        "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}", 
+        "reaction_received": "Thank you for your reaction, {name}!", 
+        "reaction_already_accepted": "{name}, your information has already been received.", # <-- ДОБАВЛЕНО
+        "share_text_full": "Look what message my bot sent me today, which helps me stay positive and move towards my goal!\nTry it yourself, it's interesting :-)\n@{bot_username}", # <-- ДОБАВЛЕНО
+        "share_text_with_quote": "🔥 {quote}\n\nLook what message my bot sent me today, which helps me stay positive and move towards my goal!\nTry it yourself, it's interesting :-)\n@{bot_username}", # <-- ДОБАВЛЕНО
+
         "profile_title": "👤 <b>Your Profile:</b>",
         "profile_name": "📛 Name",
         "profile_challenges_accepted": "⚔️ Challenges Accepted",
@@ -283,7 +301,6 @@ translations: Dict[Lang, Dict[str, str]] = {
         "btn_challenge_accept": "✅ Accept", "btn_challenge_new": "🎲 New",
         "btn_challenge_complete": "✅ Done",
 
-        # ✅ ДОБАВЛЕНО ДЛЯ НАСТРОЕК
         "btn_settings": "⚙️ Settings",
         "btn_back": "↩️ Back",
         "msg_choose_action": "Choose an action:",

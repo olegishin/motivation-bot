@@ -7,15 +7,15 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 
-# Исправленные импорты
-from bot.config import logger, settings
-from bot.localization import t, Lang
-from bot.database import db
-from bot.content_handlers import handle_start_command
-from bot.challenges import accept_challenge, send_new_challenge_message, complete_challenge
-from bot.keyboards import get_reply_keyboard_for_user
-from bot.utils import get_user_lang
-from bot.commands import send_stats_report
+# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
+from .config import logger, settings
+from .localization import t, Lang
+from .database import db 
+from .content_handlers import handle_start_command
+from .challenges import accept_challenge, send_new_challenge_message, complete_challenge
+from .keyboards import get_reply_keyboard_for_user
+from .utils import get_user_lang
+from .commands import send_stats_report 
 
 router = Router()
 
@@ -37,14 +37,46 @@ async def handle_lang_select(query: CallbackQuery, bot: Bot, static_data: dict, 
 
 @router.callback_query(F.data.startswith("reaction:"))
 async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang):
-    await query.answer() 
+    # Используем message_id и chat_id для создания уникального ключа реакции
+    reaction_key = f"reaction_{query.message.message_id}_{query.from_user.id}"
+    
+    # ПРОВЕРКА: Была ли реакция уже учтена
+    if query.message.reply_markup and query.message.reply_markup.inline_keyboard:
+        # Проверяем, не были ли кнопки уже удалены/заменены
+        first_button_data = query.message.reply_markup.inline_keyboard[0][0].callback_data
+        if first_button_data not in ("reaction:like", "reaction:dislike"):
+             # Кнопки уже изменены/удалены другим процессом, считать как уже обработанное
+             await query.answer(t('reaction_already_accepted', lang, name=user_data.get("name", "друг")), show_alert=True)
+             return
+    
+    # УДАЛЕНИЕ КЛАВИАТУРЫ ПОСЛЕ ПЕРВОГО НАЖАТИЯ
+    try:
+        # Редактируем сообщение, удаляя инлайн-клавиатуру,
+        # чтобы предотвратить повторное нажатие (визуальный индикатор "принято")
+        await query.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest as e:
+        # Если сообщение уже изменено (например, удалена клава), это OK.
+        # Если сообщение было старым, и не даёт edit:
+        logger.warning(f"Failed to remove reaction keyboard: {e}")
+        pass # Продолжаем, так как данные могли быть сохранены
+    except Exception as e:
+        logger.error(f"Error removing reaction keyboard: {e}")
+        
     reaction = query.data.split(":")[-1]
     new_likes = user_data.get("stats_likes", 0); new_dislikes = user_data.get("stats_dislikes", 0)
+    
     if reaction == "like": new_likes += 1
     elif reaction == "dislike": new_dislikes += 1
+        
     await db.update_user(query.from_user.id, stats_likes=new_likes, stats_dislikes=new_dislikes)
     user_data["stats_likes"] = new_likes; user_data["stats_dislikes"] = new_dislikes
+    
+    # Ответ пользователю
+    await query.answer(t('reaction_received', lang, name=user_data.get("name", "друг")))
+    
+    # Отправляем сообщение-подтверждение в чат (так как исходное требование: "пишет: Благодарю...")
     if query.message: await query.message.answer(t('reaction_received', lang, name=user_data.get("name", "друг")))
+
 
 @router.callback_query(F.data == "accept_current_challenge")
 async def handle_accept_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):

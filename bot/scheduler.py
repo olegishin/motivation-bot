@@ -10,15 +10,17 @@ import random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Any, Dict
+
 from aiogram import Bot
 from aiogram.types import FSInputFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from bot.config import logger, settings, SPECIAL_USER_IDS
-from bot.localization import t, DEFAULT_LANG
-from bot.database import db
-from bot import keyboards as keyboards
-from bot import utils as utils
+# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
+from .config import logger, settings, SPECIAL_USER_IDS
+from .localization import t, DEFAULT_LANG
+from .database import db 
+import .keyboards as keyboards 
+import .utils as utils 
 
 DB_FILE = settings.DB_FILE 
 ADMIN_CHAT_ID = settings.ADMIN_CHAT_ID
@@ -62,7 +64,8 @@ async def centralized_broadcast_job(bot: Bot, users_db: dict, static_data: dict)
                     if not lang_specific_phrases: continue
                         
                     phrase = (safe_choice(lang_specific_phrases) or "").format(name=user_data.get("name", "друг"))
-                    reaction_keyboard = keyboards.get_broadcast_keyboard(user_lang)
+                    # ✅ ИСПРАВЛЕНО: Передаем текст (phrase) для цитирования в кнопку "Поделиться"
+                    reaction_keyboard = keyboards.get_broadcast_keyboard(user_lang, quote_text=phrase)
                     tasks.append(utils.safe_send(bot, chat_id, phrase, reply_markup=reaction_keyboard))
             except Exception as e: 
                 logger.error(f"Error in broadcast loop for {chat_id_str}: {e}")
