@@ -8,10 +8,9 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import urllib.parse
 
-from localization import t, Lang
-from config import settings
-# ✅ ИСПРАВЛЕНО: from utils, а не from bot.utils
-from utils import is_admin, is_demo_expired, get_cooldown_days, get_max_demo_cycles 
+from bot.localization import t, Lang
+from bot.config import settings
+from bot.utils import is_admin, is_demo_expired, get_cooldown_days, get_max_demo_cycles
 
 def get_main_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()

@@ -7,15 +7,15 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 
-# ✅ ИСПРАВЛЕНО: прямые импорты
-from config import logger, settings
-from localization import t, Lang
-from database import db 
-from content_handlers import handle_start_command
-from challenges import accept_challenge, send_new_challenge_message, complete_challenge
-from keyboards import get_reply_keyboard_for_user
-from utils import get_user_lang
-from commands import send_stats_report 
+# Исправленные импорты
+from bot.config import logger, settings
+from bot.localization import t, Lang
+from bot.database import db
+from bot.content_handlers import handle_start_command
+from bot.challenges import accept_challenge, send_new_challenge_message, complete_challenge
+from bot.keyboards import get_reply_keyboard_for_user
+from bot.utils import get_user_lang
+from bot.commands import send_stats_report
 
 router = Router()
 

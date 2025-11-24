@@ -14,12 +14,10 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# ✅ ИСПРАВЛЕНО: прямые импорты
-from config import logger
-from localization import t, Lang
-from database import db 
-from utils import safe_send, get_user_tz
-
+from bot.config import logger
+from bot.localization import t, Lang
+from bot.database import db
+from bot.utils import safe_send, get_user_tz
 class ChallengeStates(StatesGroup):
     pending = State()
 

@@ -8,19 +8,19 @@ import json
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, Any
-
 from aiogram.types import Message
 
 # --- Импорты ---
-from config import logger, settings, SPECIAL_USER_IDS
-from localization import t, Lang
-from database import db
+# --- Импорты ---
+from bot.config import logger, settings, SPECIAL_USER_IDS
+from bot.localization import t, Lang
+from bot.database import db
 from bot.keyboards import (
     get_reply_keyboard_for_user, get_payment_keyboard,
     get_main_keyboard, get_cooldown_keyboard
 )
 from bot.utils import (
-    get_demo_days, get_cooldown_days, get_max_demo_cycles, 
+    get_demo_days, get_cooldown_days, get_max_demo_cycles,
     is_demo_expired, get_tz_from_lang, get_user_tz
 )
 

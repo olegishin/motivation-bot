@@ -4,15 +4,14 @@
 import secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-
 from fastapi import APIRouter, Request, Depends, HTTPException, status, Form
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from config import settings
-from database import db 
-from utils import get_demo_days, settings as utils_settings # settings нужен для REGULAR_DEMO_DAYS
+from bot.config import settings
+from bot.database import db
+from bot.utils import get_demo_days, settings as utils_settings  # settings нужен для REGULAR_DEMO_DAYS
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

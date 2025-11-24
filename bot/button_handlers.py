@@ -7,20 +7,19 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
-# ✅ ИСПРАВЛЕНО: прямые импорты
-from config import logger, settings
-from localization import t, Lang
-from database import db
-from keyboards import get_settings_keyboard, get_reply_keyboard_for_user
-from content_handlers import (
+from bot.config import logger, settings
+from bot.localization import t, Lang
+from bot.database import db
+from bot.keyboards import get_settings_keyboard, get_reply_keyboard_for_user
+from bot.content_handlers import (
     send_from_list, send_rules, send_profile,
     send_payment_instructions, activate_new_demo
 )
-from challenges import send_new_challenge_message
-from utils import get_user_tz 
-from commands import send_stats_report, show_users_command # ✅ Импорт 
-from scheduler import setup_jobs_and_cache
-from user_loader import load_static_data
+from bot.challenges import send_new_challenge_message
+from bot.utils import get_user_tz
+from bot.commands import send_stats_report, show_users_command
+from bot.scheduler import setup_jobs_and_cache
+from bot.user_loader import load_static_data
 
 router = Router()
 

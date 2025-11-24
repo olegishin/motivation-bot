@@ -15,19 +15,16 @@ from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from aiogram.fsm.state import State
 import os
 
-# ✅ ИСПРАВЛЕНО: прямые импорты (без bot.)
-from config import settings, logger
-from localization import t 
-from user_loader import load_static_data, load_users_with_fix, save_users_sync
-from scheduler import setup_jobs_and_cache, scheduler
-from utils import AccessMiddleware 
-from database import db
-
-# ✅ ИСПРАВЛЕНО: прямые импорты
-from commands import router as commands_router
-from button_handlers import router as button_router
-from callbacks import router as callback_router
-from admin_routes import router as admin_router 
+from bot.config import settings, logger
+from bot.localization import t 
+from bot.user_loader import load_static_data, load_users_with_fix, save_users_sync
+from bot.scheduler import setup_jobs_and_cache, scheduler
+from bot.utils import AccessMiddleware
+from bot.database import db
+from bot.commands import router as commands_router
+from bot.button_handlers import router as button_router
+from bot.callbacks import router as callback_router
+from bot.admin_routes import router as admin_router
 
 # --- FSM Хранилище в БД ---
 class DBSStorage(BaseStorage):

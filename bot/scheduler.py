@@ -10,17 +10,15 @@ import random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Any, Dict
-
 from aiogram import Bot
 from aiogram.types import FSInputFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# ✅ ИСПРАВЛЕНО: прямые импорты
-from config import logger, settings, SPECIAL_USER_IDS
-from localization import t, DEFAULT_LANG
-from database import db 
-import keyboards as keyboards 
-import utils as utils 
+from bot.config import logger, settings, SPECIAL_USER_IDS
+from bot.localization import t, DEFAULT_LANG
+from bot.database import db
+from bot import keyboards as keyboards
+from bot import utils as utils
 
 DB_FILE = settings.DB_FILE 
 ADMIN_CHAT_ID = settings.ADMIN_CHAT_ID

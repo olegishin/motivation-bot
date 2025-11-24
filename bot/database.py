@@ -5,7 +5,7 @@ import json
 import aiosqlite
 from typing import Dict, Any, List, Optional
 from pathlib import Path
-from config import settings, logger
+from bot.config import settings, logger
 
 class Database:
     def __init__(self, db_path: Path):

@@ -10,15 +10,14 @@ from aiogram.types import Message, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# ✅ ИСПРАВЛЕНО: прямые импорты
-from config import logger, settings, SPECIAL_USER_IDS
-from localization import t, Lang
-from database import db 
-from keyboards import get_lang_keyboard, get_reply_keyboard_for_user
-from content_handlers import handle_start_command, send_payment_instructions
-from utils import safe_send, get_user_lang, is_demo_expired
-from scheduler import setup_jobs_and_cache
-from user_loader import load_static_data 
+from bot.config import logger, settings, SPECIAL_USER_IDS
+from bot.localization import t, Lang
+from bot.database import db
+from bot.keyboards import get_lang_keyboard, get_reply_keyboard_for_user
+from bot.content_handlers import handle_start_command, send_payment_instructions
+from bot.utils import safe_send, get_user_lang, is_demo_expired
+from bot.scheduler import setup_jobs_and_cache
+from bot.user_loader import load_static_data
 
 router = Router()
 

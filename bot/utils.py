@@ -5,15 +5,14 @@ import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Dict, Any, Callable, Awaitable, Optional
-
 from aiogram import BaseMiddleware, Bot
 from aiogram.types import Message, CallbackQuery, Update
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 
-# ✅ ИСПРАВЛЕНО: прямые импорты
-from config import logger, settings, DEFAULT_TZ, SPECIAL_USER_IDS
-from localization import t, Lang
-from database import db
+# Исправленные импорты
+from bot.config import logger, settings, DEFAULT_TZ, SPECIAL_USER_IDS
+from bot.localization import t, Lang
+from bot.database import db
 
 # =====================================================
 # 1. Вспомогательные функции

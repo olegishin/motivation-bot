@@ -10,7 +10,7 @@ from typing import Dict, Any
 from pathlib import Path
 
 from bot.database import db
-from config import logger, settings, FILE_MAPPING
+from bot.config import logger, settings, FILE_MAPPING
 
 # --- Адаптер для загрузки ---
 async def load_users_with_fix() -> Dict[str, Any]:
