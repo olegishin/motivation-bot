@@ -2,7 +2,7 @@
 # Локализация и переводы.
 
 from typing import Literal, Dict
-from config import settings, logger # Импортируем logger и settings
+from bot.config import settings, logger # Импортируем logger и settings
 
 # Типизация для языков
 Lang = Literal["ru", "ua", "en"]
