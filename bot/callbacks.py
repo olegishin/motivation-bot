@@ -3,79 +3,96 @@
 
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery
-from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 
 # ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
-from .config import logger, settings
-from .localization import t, Lang
-from .database import db 
-from .content_handlers import handle_start_command
-from .challenges import accept_challenge, send_new_challenge_message, complete_challenge
-from .keyboards import get_reply_keyboard_for_user
-from .utils import get_user_lang
-from .commands import send_stats_report 
+from bot.config import logger, settings
+from bot.localization import t, Lang
+from bot.database import db 
+from bot.content_handlers import handle_start_command
+from bot.challenges import accept_challenge, send_new_challenge_message, complete_challenge
+from bot.keyboards import get_reply_keyboard_for_user
+from bot.utils import get_user_lang
+from bot.commands import send_stats_report 
 
 router = Router()
 
 @router.callback_query(F.data.startswith("set_lang_"))
 async def handle_lang_select(query: CallbackQuery, bot: Bot, static_data: dict, user_data: dict, is_new_user: bool, data: dict):
-    if not query.message: await query.answer("Ошибка: не могу найти сообщение.", show_alert=True); return
+    if not query.message: 
+        await query.answer("Ошибка: не могу найти сообщение.", show_alert=True)
+        return
+        
     lang_code = query.data.split("_")[2]
     if lang_code not in ("ru", "ua", "en"): return
+    
     lang: Lang = lang_code # type: ignore
     chat_id = query.from_user.id
+    
     await db.update_user(chat_id, language=lang)
     user_data["language"] = lang 
-    await query.answer(t('lang_chosen', lang))
-    try: await query.message.edit_text(t('lang_chosen', lang), reply_markup=None) 
-    except TelegramBadRequest: pass 
     
-    if is_new_user: await handle_start_command(message=query.message, static_data=static_data, user_data=user_data, lang=lang, is_new_user=True)
-    else: markup = get_reply_keyboard_for_user(chat_id, lang, user_data); await bot.send_message(chat_id, t('lang_chosen', lang), reply_markup=markup)
+    await query.answer(t('lang_chosen', lang))
+    
+    try: 
+        await query.message.edit_text(t('lang_chosen', lang), reply_markup=None) 
+    except TelegramBadRequest: 
+        pass 
+    
+    if is_new_user: 
+        await handle_start_command(message=query.message, static_data=static_data, user_data=user_data, lang=lang, is_new_user=True)
+    else: 
+        markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
+        await bot.send_message(chat_id, t('lang_chosen', lang), reply_markup=markup)
+
 
 @router.callback_query(F.data.startswith("reaction:"))
 async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang):
-    # Используем message_id и chat_id для создания уникального ключа реакции
-    reaction_key = f"reaction_{query.message.message_id}_{query.from_user.id}"
+    """
+    Обработка лайков/дизлайков.
+    Логика:
+    1. Если кнопки уже нет или это повтор -> "Уже принята".
+    2. Если ок -> Записываем в БД -> Пишем "Благодарю" -> Удаляем кнопки.
+    """
+    user_name = user_data.get("name", "друг")
     
-    # ПРОВЕРКА: Была ли реакция уже учтена
-    if query.message.reply_markup and query.message.reply_markup.inline_keyboard:
-        # Проверяем, не были ли кнопки уже удалены/заменены
-        first_button_data = query.message.reply_markup.inline_keyboard[0][0].callback_data
-        if first_button_data not in ("reaction:like", "reaction:dislike"):
-             # Кнопки уже изменены/удалены другим процессом, считать как уже обработанное
-             await query.answer(t('reaction_already_accepted', lang, name=user_data.get("name", "друг")), show_alert=True)
-             return
-    
-    # УДАЛЕНИЕ КЛАВИАТУРЫ ПОСЛЕ ПЕРВОГО НАЖАТИЯ
-    try:
-        # Редактируем сообщение, удаляя инлайн-клавиатуру,
-        # чтобы предотвратить повторное нажатие (визуальный индикатор "принято")
-        await query.message.edit_reply_markup(reply_markup=None)
-    except TelegramBadRequest as e:
-        # Если сообщение уже изменено (например, удалена клава), это OK.
-        # Если сообщение было старым, и не даёт edit:
-        logger.warning(f"Failed to remove reaction keyboard: {e}")
-        pass # Продолжаем, так как данные могли быть сохранены
-    except Exception as e:
-        logger.error(f"Error removing reaction keyboard: {e}")
-        
+    # 1. Защита от повторного нажатия (если клавиатура уже удалена или изменена)
+    # Если сообщение не имеет reply_markup, значит реакция уже была обработана
+    if not query.message.reply_markup:
+        await query.answer(t('reaction_already_accepted', lang, name=user_name), show_alert=True)
+        return
+
     reaction = query.data.split(":")[-1]
-    new_likes = user_data.get("stats_likes", 0); new_dislikes = user_data.get("stats_dislikes", 0)
     
-    if reaction == "like": new_likes += 1
-    elif reaction == "dislike": new_dislikes += 1
+    # 2. Обновляем статистику
+    new_likes = user_data.get("stats_likes", 0)
+    new_dislikes = user_data.get("stats_dislikes", 0)
+    
+    if reaction == "like": 
+        new_likes += 1
+    elif reaction == "dislike": 
+        new_dislikes += 1
         
     await db.update_user(query.from_user.id, stats_likes=new_likes, stats_dislikes=new_dislikes)
-    user_data["stats_likes"] = new_likes; user_data["stats_dislikes"] = new_dislikes
+    user_data["stats_likes"] = new_likes
+    user_data["stats_dislikes"] = new_dislikes
     
-    # Ответ пользователю
-    await query.answer(t('reaction_received', lang, name=user_data.get("name", "друг")))
+    # 3. Отвечаем всплывающим уведомлением
+    await query.answer(t('reaction_received', lang, name=user_name))
     
-    # Отправляем сообщение-подтверждение в чат (так как исходное требование: "пишет: Благодарю...")
-    if query.message: await query.message.answer(t('reaction_received', lang, name=user_data.get("name", "друг")))
+    # 4. (Опционально) Пишем сообщение в чат, если нужно подтверждение текстом
+    # Но обычно достаточно query.answer. Если нужно сообщение как раньше:
+    # await query.message.answer(t('reaction_received', lang, name=user_name)) 
+
+    # 5. Удаляем клавиатуру, чтобы нельзя было нажать второй раз
+    try:
+        await query.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        # Если кнопки уже удалены (гонка запросов), пишем "Уже принято"
+        await query.answer(t('reaction_already_accepted', lang, name=user_name), show_alert=True)
+    except Exception as e:
+        logger.error(f"Error removing reaction keyboard: {e}")
 
 
 @router.callback_query(F.data == "accept_current_challenge")

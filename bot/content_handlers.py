@@ -1,7 +1,5 @@
 # 6 - bot/content_handlers.py
 # - Логика контента и доступа. Обработчик статического контента и логики доступа
-# Файл содержит функции для отправки основного контента бота:
-# Утренние/Вечерние рассылки, контент по запросу, и обработка истекшего демо.
 
 import random
 import json
@@ -11,13 +9,13 @@ from typing import Dict, Any
 from aiogram.types import Message
 
 # --- Импорты ---
-# --- Импорты ---
 from bot.config import logger, settings, SPECIAL_USER_IDS
 from bot.localization import t, Lang
 from bot.database import db
 from bot.keyboards import (
     get_reply_keyboard_for_user, get_payment_keyboard,
-    get_main_keyboard, get_cooldown_keyboard
+    get_main_keyboard, get_cooldown_keyboard,
+    get_broadcast_keyboard # ✅ ДОБАВЛЕНО: Импорт клавиатуры рассылки
 )
 from bot.utils import (
     get_demo_days, get_cooldown_days, get_max_demo_cycles,
@@ -88,7 +86,7 @@ async def handle_expired_demo(message: Message, user_data: dict, lang: Lang):
     demo_days = get_demo_days(chat_id)
     max_cycles = get_max_demo_cycles(chat_id)
     
-    demo_exp_str = user_data.get("demo_expiration") # Получаем строку
+    demo_exp_str = user_data.get("demo_expiration")
     
     try:
         if demo_exp_str:
@@ -109,23 +107,18 @@ async def handle_expired_demo(message: Message, user_data: dict, lang: Lang):
                     markup = get_payment_keyboard(lang, is_test_user, show_new_demo=False)
                     text = t('demo_expired_cooldown', lang, name=user_name, hours=hours_left, minutes=minutes_left)
                 await message.answer(text, reply_markup=markup, parse_mode="HTML")
-                return # Выход, так как идет кулдаун
+                return 
         
-        # Если demo_exp_str None, невалиден, или кулдаун прошел:
-        
-        # Кулдаун прошел, можно взять новое демо или оплатить
         if demo_count < max_cycles:
             markup = get_payment_keyboard(lang, is_test_user, show_new_demo=True)
             text = t('demo_expired_choice', lang, name=user_name, demo_days=demo_days)
             await message.answer(text, reply_markup=markup)
         else:
-            # Все циклы исчерпаны
             markup = get_payment_keyboard(lang, is_test_user, show_new_demo=False)
             text = t('demo_expired_final', lang, name=user_name)
             await message.answer(text, reply_markup=markup)
             
     except (ValueError, TypeError) as e:
-        # Если дата невалидна, логгируем ошибку, но показываем "выбор"
         logger.error(f"Error checking demo date for {chat_id}: {e}")
         markup = get_payment_keyboard(lang, is_test_user, show_new_demo=(demo_count < max_cycles))
         await message.answer(t('demo_expired_choice', lang, name=user_name, demo_days=demo_days), reply_markup=markup)
@@ -142,7 +135,11 @@ async def send_from_list(message: Message, static_data: dict, user_data: dict, l
     user_name = user_data.get("name", "друг")
     try:
         item = random.choice(item_list).format(name=user_name)
-        await message.answer(f"<b>{title}</b>\n{item}", parse_mode="HTML")
+        
+        # ✅ ИСПРАВЛЕНО: Добавляем кнопки Like/Dislike/Share и передаем текст для цитаты
+        reaction_keyboard = get_broadcast_keyboard(lang, quote_text=item)
+        
+        await message.answer(f"<b>{title}</b>\n{item}", parse_mode="HTML", reply_markup=reaction_keyboard)
     except Exception as e:
         logger.error(f"Error in send_from_list: {e}")
         await message.answer(t('list_error_unexpected', lang, title=title))
@@ -227,7 +224,7 @@ async def activate_new_demo(message: Message, user_data: dict, lang: Lang):
     max_cycles = get_max_demo_cycles(chat_id)
     demo_count = user_data.get("demo_count", 1)
 
-    demo_exp_str = user_data.get("demo_expiration") # Получаем строку
+    demo_exp_str = user_data.get("demo_expiration")
     
     try:
         if demo_exp_str:
@@ -238,8 +235,7 @@ async def activate_new_demo(message: Message, user_data: dict, lang: Lang):
             if now_utc < next_demo_dt:
                 await db.update_user(chat_id, status="awaiting_renewal")
                 user_data["status"] = "awaiting_renewal" 
-                # ✅ ИСПРАВЛЕНО: прямой импорт
-                from keyboards import get_cooldown_keyboard
+                from bot.keyboards import get_cooldown_keyboard
                 markup = get_cooldown_keyboard(lang, chat_id in settings.TESTER_USER_IDS)
                 time_left = next_demo_dt - now_utc
                 hours_left, remainder = divmod(int(time_left.total_seconds()), 3600)
@@ -248,28 +244,23 @@ async def activate_new_demo(message: Message, user_data: dict, lang: Lang):
                 await message.answer(t('demo_awaiting_renewal', lang, name=user_data.get("name", "друг"), hours=hours_left, minutes=minutes_left), reply_markup=markup)
                 return
                 
-            if demo_count >= max_cycles:
-                # ✅ ИСПРАВЛЕНО: прямой импорт
-                from keyboards import get_payment_keyboard 
-                markup = get_payment_keyboard(lang, chat_id in settings.TESTER_USER_IDS, show_new_demo=False)
-                await message.answer(t('demo_expired_final', lang, name=user_data.get("name", "друг")), reply_markup=markup)
-                return
+        if demo_count >= max_cycles:
+            from bot.keyboards import get_payment_keyboard 
+            markup = get_payment_keyboard(lang, chat_id in settings.TESTER_USER_IDS, show_new_demo=False)
+            await message.answer(t('demo_expired_final', lang, name=user_data.get("name", "друг")), reply_markup=markup)
+            return
             
     except Exception as e:
         logger.error(f"Error checking demo conditions for {chat_id}: {e}")
-        # Если произошла ошибка парсинга даты, но циклы не исчерпаны, 
-        # пропускаем кулдаун и позволяем взять новое демо.
         if demo_count >= max_cycles:
-            from keyboards import get_payment_keyboard 
+            from bot.keyboards import get_payment_keyboard 
             markup = get_payment_keyboard(lang, chat_id in settings.TESTER_USER_IDS, show_new_demo=False)
             await message.answer(t('demo_expired_final', lang, name=user_data.get("name", "друг")), reply_markup=markup)
             return
 
 
-    # Эта часть выполняется, если (1) нет даты, (2) кулдаун прошел, или (3) была ошибка парсинга даты, но циклы не исчерпаны.
     if demo_count >= max_cycles:
-        # Это должно быть уже обработано в блоке try, но на всякий случай
-        from keyboards import get_payment_keyboard 
+        from bot.keyboards import get_payment_keyboard 
         markup = get_payment_keyboard(lang, chat_id in settings.TESTER_USER_IDS, show_new_demo=False)
         await message.answer(t('demo_expired_final', lang, name=user_data.get("name", "друг")), reply_markup=markup)
         return
@@ -284,7 +275,6 @@ async def activate_new_demo(message: Message, user_data: dict, lang: Lang):
     await db.update_user(chat_id, **new_data)
     user_data.update(new_data)
     
-    # ✅ ИСПРАВЛЕНО: прямой импорт
-    from keyboards import get_main_keyboard
+    from bot.keyboards import get_main_keyboard
     new_markup = get_main_keyboard(lang)
     await message.answer(t('welcome_renewed_demo', lang, name=user_data.get("name", "друг"), demo_days=demo_duration_days), reply_markup=new_markup)

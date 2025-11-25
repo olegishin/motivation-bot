@@ -1,26 +1,24 @@
-# 5 - S:/fotinia_bot/bot/scheduler.py
+# 5 - bot/scheduler.py
 # Планировщик фоновых задач APScheduler
 
 import asyncio
 import shutil
-import tempfile
 import os
-import json
 import random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import List, Any, Dict
+from typing import List, Any
 
 from aiogram import Bot
 from aiogram.types import FSInputFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
-from .config import logger, settings, SPECIAL_USER_IDS
-from .localization import t, DEFAULT_LANG
-from .database import db 
-import .keyboards as keyboards 
-import .utils as utils 
+# ✅ ИСПРАВЛЕНО: Правильные импорты внутри пакета
+from bot.config import logger, settings, SPECIAL_USER_IDS
+from bot.localization import t, DEFAULT_LANG
+from bot.database import db 
+from bot import keyboards
+from bot import utils
 
 DB_FILE = settings.DB_FILE 
 ADMIN_CHAT_ID = settings.ADMIN_CHAT_ID
@@ -42,6 +40,8 @@ def _is_user_active_for_broadcast(chat_id: int, user_data: dict) -> bool:
 
 async def centralized_broadcast_job(bot: Bot, users_db: dict, static_data: dict):
     now_utc = datetime.now(ZoneInfo("UTC"))
+    
+    # ✅ УТРО В 8:00
     schedules = [(8, "morning_phrases"), (12, "goals"), (15, "day_phrases"), (18, "evening_phrases")]
     tasks = []
     
@@ -49,6 +49,8 @@ async def centralized_broadcast_job(bot: Bot, users_db: dict, static_data: dict)
     
     for hour, key in schedules:
         data = static_data.get(key, {}) 
+        phrases_by_lang = data if isinstance(data, dict) else {DEFAULT_LANG: data if isinstance(data, list) else []}
+
         for chat_id_str, user_data in users_db.items():
             try: chat_id = int(chat_id_str)
             except ValueError: continue
@@ -59,14 +61,17 @@ async def centralized_broadcast_job(bot: Bot, users_db: dict, static_data: dict)
                 user_tz = utils.get_user_tz(user_data)
                 user_lang = utils.get_user_lang(user_data)
                 
+                # Проверяем час по ЛОКАЛЬНОМУ времени пользователя
                 if now_utc.astimezone(user_tz).hour == hour:
-                    lang_specific_phrases = data.get(user_lang, data.get(DEFAULT_LANG, []))
+                    lang_specific_phrases = phrases_by_lang.get(user_lang, phrases_by_lang.get(DEFAULT_LANG, []))
                     if not lang_specific_phrases: continue
                         
                     phrase = (safe_choice(lang_specific_phrases) or "").format(name=user_data.get("name", "друг"))
-                    # ✅ ИСПРАВЛЕНО: Передаем текст (phrase) для цитирования в кнопку "Поделиться"
+                    
+                    # ✅ ИСПРАВЛЕНО: Передаем текст цитаты в клавиатуру
                     reaction_keyboard = keyboards.get_broadcast_keyboard(user_lang, quote_text=phrase)
                     tasks.append(utils.safe_send(bot, chat_id, phrase, reply_markup=reaction_keyboard))
+                    
             except Exception as e: 
                 logger.error(f"Error in broadcast loop for {chat_id_str}: {e}")
     
@@ -98,6 +103,7 @@ async def check_demo_expiry_job(bot: Bot, users_db: dict):
                 logger.info(f"Demo expiring soon for user {chat_id}.")
                 lang = utils.get_user_lang(user_data)
                 await utils.safe_send(bot, chat_id, t('demo_expiring_soon_h', lang=lang, name=user_data.get("name", "друг"), hours=warning_hours))
+                
                 await db.update_user(chat_id, sent_expiry_warning=True)
                 user_data["sent_expiry_warning"] = True 
         except Exception as e:
