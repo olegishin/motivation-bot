@@ -1,10 +1,12 @@
-# 3 - S:/fotinia_bot/bot/database.py
+# 3 - bot/database.py
 # Менеджер базы данных SQLite
 
 import json
 import aiosqlite
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+
+# ✅ ИСПРАВЛЕНО: Импорт с префиксом bot.
 from bot.config import settings, logger
 
 class Database:
@@ -31,7 +33,7 @@ class Database:
                 )
             """)
             try:
-                # Попытка добавить колонки, если их еще нет
+                # Попытка добавить колонки, если их еще нет (миграция для старых БД)
                 await db.execute("ALTER TABLE users ADD COLUMN fsm_state TEXT")
                 await db.execute("ALTER TABLE users ADD COLUMN fsm_data TEXT")
                 logger.info("Database migration: Added FSM columns.")
@@ -111,7 +113,6 @@ class Database:
     async def update_fsm_storage(self, user_id: int, state: Optional[str] = None, data: Optional[Dict] = None):
         """Обновляет FSM state и data."""
         async with aiosqlite.connect(self.db_path) as db:
-            # Если state None, то это очистка FSM.
             await db.execute(
                 "UPDATE users SET fsm_state = ?, fsm_data = ? WHERE user_id = ?",
                 (state, json.dumps(data or {}), user_id)
@@ -128,8 +129,7 @@ class Database:
             async with db.execute("SELECT data FROM users WHERE user_id = ?", (user_id,)) as cursor:
                 row = await cursor.fetchone()
                 if not row:
-                    # Если юзера нет, добавляем заглушку, но в этом случае user_data не обновится
-                    logger.warning(f"update_user: User {user_id} not found to update.")
+                    # Если юзера нет, ничего не делаем (он создается через add_user)
                     return
                 try:
                     user_data = json.loads(row["data"])
@@ -145,15 +145,15 @@ class Database:
             )
             await db.commit()
 
-    async def add_user(self, user_id: int, username: Optional[str], full_name: str, language: str, timezone: str):
-        """Добавляет нового пользователя (вызывается из Middleware)."""
+    async def add_user(self, user_id: int, username: Optional[str], full_name: str, language: str = "ru", timezone: str = "Europe/Kiev", active: bool = True):
+        """Добавляет нового пользователя."""
         new_user_data = {
             "id": user_id,
             "username": username,
             "name": full_name,
             "language": language,
             "timezone": timezone,
-            "active": True,
+            "active": active,
             "demo_count": 0,
             "demo_expiration": None,
             "challenge_streak": 0,
@@ -169,9 +169,11 @@ class Database:
             "status": "new"
         }
         json_data = json.dumps(new_user_data, ensure_ascii=False)
+        
         async with aiosqlite.connect(self.db_path) as db:
+            # INSERT OR IGNORE, чтобы не перезаписать существующего
             await db.execute(
-                "INSERT OR REPLACE INTO users (user_id, data) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO users (user_id, data) VALUES (?, ?)",
                 (user_id, json_data)
             )
             await db.commit()
@@ -191,5 +193,27 @@ class Database:
                         logger.error(f"Error loading user {row['user_id']}: {e}")
                         continue
         return users_dict
+    
+    # --- Методы подсчета статистики ---
+    async def count_users(self) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM users") as cursor:
+                return (await cursor.fetchone())[0]
+
+    async def count_paid_users(self) -> int:
+        # Так как данные в JSON, приходится делать выборку. 
+        # В SQLITE можно использовать json_extract, но для надежности переберем в питоне или используем LIKE
+        count = 0
+        all_users = await self.get_all_users()
+        for u in all_users.values():
+            if u.get("is_paid"): count += 1
+        return count
+
+    async def count_demo_users(self) -> int:
+        count = 0
+        all_users = await self.get_all_users()
+        for u in all_users.values():
+            if u.get("status") in ('active_demo', 'awaiting_renewal'): count += 1
+        return count
 
 db = Database(settings.DB_FILE)

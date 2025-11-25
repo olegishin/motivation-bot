@@ -1,5 +1,5 @@
-# 10 bot/button_handlers.py
-# Обработчики кнопок Aiogram (F.text)/ Обработчики CallbackQuery
+# 10 - bot/button_handlers.py
+# Обработчики кнопок Aiogram (F.text)
 
 from datetime import datetime, date
 
@@ -7,6 +7,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
+# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
 from bot.config import logger, settings
 from bot.localization import t, Lang
 from bot.database import db
@@ -17,7 +18,7 @@ from bot.content_handlers import (
 )
 from bot.challenges import send_new_challenge_message
 from bot.utils import get_user_tz
-from bot.commands import send_stats_report, show_users_command
+from bot.commands import send_stats_report, show_users_command 
 from bot.scheduler import setup_jobs_and_cache
 from bot.user_loader import load_static_data
 
@@ -61,15 +62,23 @@ async def handle_rhythm_button(message: Message, static_data: dict, user_data: d
 @router.message(F.text.in_([t('btn_challenge', 'ru'), t('btn_challenge', 'ua'), t('btn_challenge', 'en')]))
 async def handle_challenge_button(message: Message, static_data: dict, user_data: dict, lang: Lang, state: FSMContext):
     chat_id = message.from_user.id
-    user_tz = get_user_tz(user_data); today = datetime.now(user_tz).date()
+    user_tz = get_user_tz(user_data)
+    today = datetime.now(user_tz).date()
     last_challenge_date_str = user_data.get("last_challenge_date")
+    
     if last_challenge_date_str:
         try:
             last_challenge_date = date.fromisoformat(last_challenge_date_str)
             if last_challenge_date == today:
-                if user_data.get("challenge_accepted") is False: await message.answer(t('challenge_pending_acceptance', lang=lang)); return
-                elif user_data.get("challenge_accepted") is True and chat_id not in settings.TESTER_USER_IDS: await message.answer(t('challenge_already_issued', lang=lang)); return
-        except Exception: pass
+                if user_data.get("challenge_accepted") is False: 
+                    await message.answer(t('challenge_pending_acceptance', lang=lang))
+                    return
+                elif user_data.get("challenge_accepted") is True and chat_id not in settings.TESTER_USER_IDS: 
+                    await message.answer(t('challenge_already_issued', lang=lang))
+                    return
+        except Exception: 
+            pass
+            
     await send_new_challenge_message(message, static_data, user_data, lang, state, is_edit=False)
 
 @router.message(F.text.in_([t('btn_profile', 'ru'), t('btn_profile', 'ua'), t('btn_profile', 'en')]))
@@ -78,7 +87,9 @@ async def handle_profile_button(message: Message, user_data: dict, lang: Lang):
 
 @router.message(F.text.in_([t('btn_stats', 'ru'), t('btn_stats', 'ua'), t('btn_stats', 'en')]))
 async def handle_stats_button(message: Message, users_db: dict, is_admin: bool, lang: Lang):
-    if not is_admin: await message.answer(t('unknown_command', lang)); return
+    if not is_admin: 
+        await message.answer(t('unknown_command', lang))
+        return
     await send_stats_report(message, users_db, lang)
 
 @router.message(F.text.in_([t('btn_pay_premium', 'ru'), t('btn_pay_premium', 'ua'), t('btn_pay_premium', 'en'), t('btn_pay_api_test_premium', 'ru'), t('btn_pay_api_test_premium', 'ua'), t('btn_pay_api_test_premium', 'en')]))
@@ -93,15 +104,23 @@ async def handle_want_demo_button(message: Message, user_data: dict, lang: Lang)
 async def handle_reload_data(message: Message, bot: Bot, users_db: dict, static_data: dict, is_admin: bool, lang: Lang):
     if not is_admin: return
     logger.info(f"Admin {message.from_user.id} triggered /reload (button).")
-    new_static_data = await load_static_data(); static_data.clear(); static_data.update(new_static_data)
-    new_users_db = await db.get_all_users(); users_db.clear(); users_db.update(new_users_db)
+    
+    new_static_data = await load_static_data()
+    static_data.clear()
+    static_data.update(new_static_data)
+    
+    new_users_db = await db.get_all_users()
+    users_db.clear()
+    users_db.update(new_users_db)
+    
     await setup_jobs_and_cache(bot, users_db, static_data)
     await message.answer(t('reload_confirm', lang))
 
 @router.message(F.text.in_([t('btn_show_users', 'ru'), t('btn_show_users', 'ua'), t('btn_show_users', 'en')]))
-async def handle_show_users_button(message: Message, is_admin: bool, lang: Lang):
+async def handle_show_users_button(message: Message, users_db: dict, is_admin: bool, lang: Lang):
     if not is_admin: return
-    await show_users_command(message, is_admin, lang)
+    # ✅ ИСПРАВЛЕНО: Передаем users_db
+    await show_users_command(message, users_db, is_admin)
 
 @router.message(F.text)
 async def handle_unknown_text(message: Message, lang: Lang, user_data: dict):

@@ -1,14 +1,14 @@
-# 4 - S:/fotinia_bot/user_loader.py
+# 14 - bot/user_loader.py
 # Загрузка данных и миграция
 
 import asyncio
 import json
-import os 
 import shutil
 import tempfile
 from typing import Dict, Any
 from pathlib import Path
 
+# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
 from bot.database import db
 from bot.config import logger, settings, FILE_MAPPING
 
@@ -37,7 +37,7 @@ def save_users_sync(users_db: Dict[str, Any]) -> None:
     """
     try:
         # Убеждаемся, что папка существует
-        settings.DATA_DIR.mkdir(exist_ok=True)
+        settings.DATA_DIR.mkdir(exist_ok=True, parents=True)
         # Сохраняем во временный файл
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=settings.DATA_DIR) as tmp:
             # Сохраняем только данные (data), без FSM
@@ -65,10 +65,11 @@ def _load_static_data_sync() -> dict:
     if not source_data_dir.exists():
         logger.warning(f"⚠️ data_initial not found at {source_data_dir}, skipping sync.")
     else:
-        DATA_DIR.mkdir(exist_ok=True)
-        for filename in os.listdir(source_data_dir): 
-            if filename.endswith('.json') and filename != 'users.json':
-                shutil.copy2(source_data_dir / filename, DATA_DIR / filename)
+        DATA_DIR.mkdir(exist_ok=True, parents=True)
+        # ✅ ИСПРАВЛЕНО: Используем pathlib для перебора файлов
+        for item in source_data_dir.iterdir(): 
+            if item.is_file() and item.suffix == '.json' and item.name != 'users.json':
+                shutil.copy2(item, DATA_DIR / item.name)
 
     static_data = {}
     

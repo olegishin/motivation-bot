@@ -1,4 +1,4 @@
-# 1- S:/fotinia_bot/bot/config.py
+# 1 - bot/config.py
 # Конфигурация бота и логирование.
 
 import os
@@ -6,7 +6,7 @@ import logging
 import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from typing import Set, Optional
+from typing import Set
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ----------------- КОНФИГУРАЦИЯ ЛОГОВ -----------------
@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # --- Админка ---
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "secret"
+    # ✅ ДОБАВЛЕНО: Секретный токен для API админки
+    ADMIN_SECRET: str = "my_secret_token_123" 
     
     # Списки ID
     TESTER_USER_IDS: Set[int] = {290711961, 6104624108}
@@ -98,6 +100,4 @@ SPECIAL_USER_IDS = settings.TESTER_USER_IDS.union(settings.SIMULATOR_USER_IDS).u
 logger.info("🤖 Bot config loaded...")
 logger.info(f"🔑 ADMIN_CHAT_ID configured as: {settings.ADMIN_CHAT_ID}")
 logger.info(f"🧪 TESTER_USER_IDS configured as: {settings.TESTER_USER_IDS}")
-logger.info(f"🎮 SIMULATOR_USER_IDS configured as: {settings.SIMULATOR_USER_IDS}")
 logger.info(f"📂 DATA_DIR is: {settings.DATA_DIR}")
-logger.info(f"📂 DATA_INITIAL_DIR is: {settings.DATA_INITIAL_DIR}")

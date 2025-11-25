@@ -1,4 +1,4 @@
-# 13 - bot/utils.py
+# 9 - bot/utils.py
 # Утилиты и Middleware
 
 import asyncio
@@ -9,7 +9,7 @@ from aiogram import BaseMiddleware, Bot
 from aiogram.types import Message, CallbackQuery, Update
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 
-# Исправленные импорты
+# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
 from bot.config import logger, settings, DEFAULT_TZ, SPECIAL_USER_IDS
 from bot.localization import t, Lang
 from bot.database import db
@@ -165,8 +165,8 @@ class AccessMiddleware(BaseMiddleware):
 
             logger.info(f"Access denied for {chat_id} — demo expired")
             
-            # ✅ ИСПРАВЛЕНО: убрали bot.
-            from content_handlers import handle_expired_demo
+            # ✅ ИСПРАВЛЕНО: Импорт ВНУТРИ функции, чтобы избежать циклической зависимости
+            from bot.content_handlers import handle_expired_demo
             await handle_expired_demo(message, user_data, lang)
             return
 

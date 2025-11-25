@@ -1,15 +1,17 @@
-# 9 - bot/commands.py
+# 13 - bot/commands.py
 # Обработчики команд Aiogram
 
+import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Router, Bot
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
 from bot.config import logger, settings, SPECIAL_USER_IDS
 from bot.localization import t, Lang
 from bot.database import db
@@ -103,7 +105,10 @@ async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bo
     if target_user_data.get("is_paid"): await message.answer(t('admin_grant_fail_already_paid', lang, name=target_user_data.get('name', ''), user_id=target_id_str)); return
     
     await db.update_user(target_id_int, is_paid=True, status="active_paid", active=True, demo_expiration=(datetime.now(ZoneInfo("UTC")) + timedelta(days=30)).isoformat())
-    target_user_data['is_paid'] = True; target_user_data['status'] = 'active_paid'; users_db[target_id_str] = target_user_data 
+    
+    # Обновляем кэш
+    new_user_data = await db.get_user(target_id_int)
+    users_db[target_id_str] = new_user_data 
     
     await message.answer(t('admin_grant_success', lang, name=target_user_data.get('name', ''), user_id=target_id_str))
     target_lang = get_user_lang(target_user_data)
@@ -147,12 +152,15 @@ async def stats_command(message: Message, users_db: dict, is_admin: bool, lang: 
     await send_stats_report(message, users_db, lang)
 
 @router.message(Command("show_users"))
-async def show_users_command(message: Message, is_admin: bool, lang: Lang):
+async def show_users_command(message: Message, users_db: dict, is_admin: bool):
     if not is_admin: return
-    if settings.USERS_FILE.exists() and settings.USERS_FILE.stat().st_size > 2:
-        await message.answer_document(document=FSInputFile(settings.USERS_FILE), caption=t('users_file_caption', lang))
-    else:
-        await message.answer(t('users_file_empty', lang))
+    
+    # Генерируем JSON из текущего кэша (или БД)
+    # Это лучше, чем отправлять старый users.json с диска
+    data_str = json.dumps(users_db, default=str, indent=2, ensure_ascii=False)
+    file = BufferedInputFile(data_str.encode("utf-8"), filename="users.json")
+    
+    await message.answer_document(file, caption="📂 Users Database Dump (Live)")
 
 @router.message(Command("reload"))
 async def reload_command(message: Message, bot: Bot, users_db: dict, static_data: dict, is_admin: bool, lang: Lang):

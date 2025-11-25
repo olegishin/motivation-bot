@@ -1,5 +1,5 @@
 # 11 - bot/admin_routes.py
-# FastAPI роуты для админки/Админ-панель FastAPI роуты
+# FastAPI роуты для админки
 
 import secrets
 from datetime import datetime, timedelta
@@ -9,13 +9,14 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
 from bot.config import settings
 from bot.database import db
-from bot.utils import get_demo_days, settings as utils_settings  # settings нужен для REGULAR_DEMO_DAYS
+from bot.utils import get_demo_days
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# ✅ ИСПРАВЛЕНО: путь теперь просто "templates", так как папка в корне
+# Шаблоны ищем в папке templates в корне проекта
 templates = Jinja2Templates(directory="templates")
 security = HTTPBasic()
 
@@ -58,7 +59,11 @@ async def admin_action(
     """
     Обработка кнопок действий.
     """
-    user_id_int = int(user_id)
+    try:
+        user_id_int = int(user_id)
+    except ValueError:
+        return RedirectResponse(url="/admin", status_code=303)
+
     # Получаем актуальные данные пользователя
     user_data = await db.get_user(user_id_int)
     
@@ -76,6 +81,7 @@ async def admin_action(
         await db.update_user(user_id_int, **new_data)
         
     elif action == "reset_demo":
+        # Определяем длительность (учитываем, тестер это или нет)
         demo_duration = get_demo_days(user_id_int)
         
         new_data = {
@@ -83,8 +89,8 @@ async def admin_action(
             "demo_count": 1,
             "active": True,
             "status": "active_demo",
-            # Используем settings из utils, так как settings импортирован из config (см. utils_settings)
-            "demo_expiration": (datetime.now(ZoneInfo("UTC")) + timedelta(days=utils_settings.REGULAR_DEMO_DAYS)).isoformat(), 
+            # ✅ ИСПРАВЛЕНО: Используем settings напрямую
+            "demo_expiration": (datetime.now(ZoneInfo("UTC")) + timedelta(days=demo_duration)).isoformat(), 
             "sent_expiry_warning": False,
             "challenge_streak": 0,
             "last_challenge_date": None,
