@@ -5,16 +5,16 @@ import asyncio
 import json
 import shutil
 import tempfile
+import os
 from typing import Dict, Any
 from pathlib import Path
 
-# ✅ Импорты с префиксом bot.
+# ✅ Импорты
 from bot.database import db
 from bot.config import logger, settings, FILE_MAPPING
 
-# --- Адаптер для загрузки ---
+# --- Адаптер для загрузки пользователей ---
 async def load_users_with_fix() -> Dict[str, Any]:
-    """Загружает всех пользователей из БД при старте."""
     await db.connect()
     await db.migrate_from_json(settings.USERS_FILE)
     users = await db.get_all_users()
@@ -23,7 +23,6 @@ async def load_users_with_fix() -> Dict[str, Any]:
 
 # --- Адаптер для сохранения ---
 def save_users_sync(users_db: Dict[str, Any]) -> None:
-    """Синхронно сохраняет аварийный JSON-дамп."""
     try:
         settings.DATA_DIR.mkdir(exist_ok=True, parents=True)
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=settings.DATA_DIR) as tmp:
@@ -34,21 +33,19 @@ def save_users_sync(users_db: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error(f"❌ Emergency save failed: {e}")
 
-# --- Загрузка статического контента ---
+# --- Загрузка статики ---
 async def load_static_data() -> dict:
     return await asyncio.to_thread(_load_static_data_sync)
 
 def _load_static_data_sync() -> dict:
-    """Загружает весь статический контент (JSON-файлы) в кэш."""
     DATA_DIR = settings.DATA_DIR
     
-    # 1. Копирование файлов из data_initial
+    # 1. Копируем файлы из data_initial (если есть)
     source_data_dir = settings.DATA_INITIAL_DIR
     if not source_data_dir.exists():
-        logger.warning(f"⚠️ data_initial not found at {source_data_dir}, skipping sync.")
+        logger.warning(f"⚠️ data_initial not found at {source_data_dir}")
     else:
         DATA_DIR.mkdir(exist_ok=True, parents=True)
-        # Копируем все json файлы
         for item in source_data_dir.iterdir(): 
             if item.is_file() and item.suffix == '.json' and item.name != 'users.json':
                 shutil.copy2(item, DATA_DIR / item.name)
@@ -56,31 +53,41 @@ def _load_static_data_sync() -> dict:
     static_data = {}
     
     def load_json(path):
-        if not path.exists(): return []
+        if not path.exists(): 
+            logger.warning(f"⚠️ File not found: {path}")
+            return []
         try:
-            with open(path, 'r', encoding='utf-8') as f: return json.load(f)
+            # ✅ ИСПРАВЛЕНО: utf-8-sig читает файлы и с BOM (Windows Notepad) и без него
+            with open(path, 'r', encoding='utf-8-sig') as f: 
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ JSON Error in {path.name}: {e}")
+            return []
         except Exception as e:
-            logger.error(f"Failed to load static JSON {path.name}: {e}")
+            logger.error(f"❌ Error loading {path.name}: {e}")
             return []
 
-    # 2. Загрузка всех файлов из FILE_MAPPING (ВКЛЮЧАЯ CHALLENGES)
+    # 2. Загружаем файлы по карте
     for key, filename in FILE_MAPPING.items():
-        raw_data = load_json(DATA_DIR / filename)
+        file_path = DATA_DIR / filename
+        raw_data = load_json(file_path)
         
-        # ✅ АВТО-ИСПРАВЛЕНИЕ СТРУКТУРЫ
-        # Если файл содержит список ["текст", "текст"], а мы ждем словарь {"ru": [...]},
-        # то привязываем этот список к дефолтному языку.
+        # Специальный DEBUG для челленджей
+        if key == "challenges":
+            if not raw_data:
+                logger.error(f"😱 CHALLENGES FILE IS EMPTY OR BROKEN! Path: {file_path}")
+            elif isinstance(raw_data, list):
+                logger.info(f"✅ Loaded {len(raw_data)} challenges (List format).")
+            elif isinstance(raw_data, dict):
+                count = sum(len(v) for v in raw_data.values())
+                logger.info(f"✅ Loaded {count} challenges (Dict format).")
+
+        # Авто-исправление структуры (Список -> Словарь)
         if isinstance(raw_data, list):
              static_data[key] = {settings.DEFAULT_LANG: raw_data}
-             # logger.info(f"Fixed list structure for {key} -> assigned to {settings.DEFAULT_LANG}")
         elif isinstance(raw_data, dict):
             static_data[key] = raw_data
         else:
             static_data[key] = {}
 
-    # Логируем количество
-    rules_count = len(static_data.get('rules', {}).get(settings.DEFAULT_LANG, []))
-    challenges_count = len(static_data.get('challenges', {}).get(settings.DEFAULT_LANG, []))
-    
-    logger.info(f"📚 Static data loaded. Rules: {rules_count}, Challenges: {challenges_count}")
     return static_data

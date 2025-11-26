@@ -14,7 +14,6 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
 from bot.config import logger
 from bot.localization import t, Lang
 from bot.database import db
@@ -32,23 +31,34 @@ async def send_new_challenge_message(
     is_edit: bool = False
 ):
     chat_id = event.from_user.id
-    challenge_list = static_data.get("challenges", {}).get(lang, [])
     
+    # Пытаемся получить список. Если нет - берем дефолтный русский список
+    challenge_list = static_data.get("challenges", {}).get(lang, [])
     if not challenge_list:
-        logger.error(f"Challenge list empty for lang {lang}")
-        return
+        challenge_list = static_data.get("challenges", {}).get("ru", [])
+    
+    # ⚠️ ЗАЩИТА: Если список все равно пуст (файл не загрузился)
+    if not challenge_list:
+        logger.error(f"❌ Challenge list is COMPLETELY EMPTY for {chat_id}!")
+        # Аварийный челлендж, чтобы бот не молчал
+        challenge_list = ["Сделай 10 глубоких вдохов и выпей стакан воды. (Системный челлендж)"]
 
     try:
         challenge_raw = random.choice(challenge_list)
         user_name = user_data.get("name", "друг")
-        formatted_challenge = challenge_raw.format(name=user_name)
-        
+        # Безопасное форматирование (если в тексте нет {name}, не упадем)
+        try:
+            formatted_challenge = challenge_raw.format(name=user_name)
+        except KeyError:
+            formatted_challenge = challenge_raw
+
         await state.set_state(ChallengeStates.pending)
         await state.update_data(pending_challenge_text=formatted_challenge)
 
         kb = InlineKeyboardBuilder()
         kb.button(text=t('btn_challenge_accept', lang), callback_data="accept_current_challenge")
         kb.button(text=t('btn_challenge_new', lang), callback_data="new_challenge")
+        
         text = t('challenge_new_day', lang, challenge_text=formatted_challenge)
         
         sent_message = None
@@ -68,7 +78,8 @@ async def send_new_challenge_message(
         user_data["challenge_accepted"] = False
 
     except Exception as e:
-        logger.exception(f"Unexpected error sending challenge to {chat_id}:")
+        logger.exception(f"Unexpected error sending challenge to {chat_id}: {e}")
+        await safe_send(event.bot, chat_id, "⚠️ Ошибка при выдаче челленджа. Попробуйте позже.")
 
 async def accept_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):
     chat_id = query.from_user.id
@@ -76,10 +87,9 @@ async def accept_challenge(query: CallbackQuery, user_data: dict, lang: Lang, st
     challenge_text = fsm_data.get("pending_challenge_text")
     message_id = fsm_data.get("challenge_message_id")
 
-    if not query.message or not challenge_text or not message_id or message_id != query.message.message_id:
-        await query.answer(t('challenge_accept_error', lang), show_alert=True)
-        try: await query.message.edit_text(query.message.text, reply_markup=None, parse_mode=ParseMode.HTML)
-        except TelegramBadRequest: pass
+    # Если стейт потерялся (после перезагрузки), пробуем восстановить из текста сообщения, если возможно, или просим новый
+    if not challenge_text:
+        await query.answer("⚠️ Данные устарели. Нажмите 'Новый'!", show_alert=True)
         return
 
     challenge_history = user_data.get("challenges", [])
@@ -96,27 +106,20 @@ async def accept_challenge(query: CallbackQuery, user_data: dict, lang: Lang, st
     user_data["challenges"] = challenge_history
     
     await state.set_state(None)
-    await state.update_data(challenge_message_id=message_id)
-
+    
     kb = InlineKeyboardBuilder()
     kb.button(text=t('btn_challenge_complete', lang), callback_data=f"complete_challenge:{accepted_challenge_index}")
     
     try:
         await query.message.edit_text(t('challenge_accepted_msg', lang, challenge_text=challenge_text), reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
-    except TelegramBadRequest as e: logger.error(f"Failed to edit message {message_id}: {e}")
-    finally: await query.answer(t('challenge_accepted_msg', lang))
+    except TelegramBadRequest: 
+        pass # Сообщение не изменилось
+    finally: 
+        await query.answer(t('challenge_accepted_msg', lang))
 
 
 async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):
     chat_id = query.from_user.id
-    fsm_data = await state.get_data()
-    message_id = fsm_data.get("challenge_message_id")
-
-    if not query.message or not message_id or message_id != query.message.message_id:
-        await query.answer(t('challenge_completed_edit_err', lang), show_alert=True)
-        try: await query.message.edit_text(t('challenge_completed_edit_err', lang), reply_markup=None)
-        except TelegramBadRequest: pass
-        return
     
     try:
         challenge_index_to_complete = int(query.data.split(":")[-1])
@@ -139,6 +142,7 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
             original_text = query.message.text
             confirmation_text = t('challenge_completed_msg', lang)
             
+            # Дописываем "Выполнено" к тексту
             await query.message.edit_text(f"{original_text}\n\n<b>{confirmation_text}</b>", reply_markup=None, parse_mode=ParseMode.HTML)
 
             if current_streak == 3:
@@ -149,4 +153,4 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
         logger.exception(f"Error processing complete_challenge for {chat_id}:")
         await query.answer(t('challenge_completed_edit_err', lang), show_alert=True)
     finally:
-        await query.answer(t('challenge_completed_msg', lang))
+        await query.answer()
