@@ -8,42 +8,27 @@ import tempfile
 from typing import Dict, Any
 from pathlib import Path
 
-# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
+# ✅ Импорты с префиксом bot.
 from bot.database import db
 from bot.config import logger, settings, FILE_MAPPING
 
 # --- Адаптер для загрузки ---
 async def load_users_with_fix() -> Dict[str, Any]:
-    """
-    Загружает всех пользователей из БД при старте.
-    Запускает миграцию, если нужно (из users.json).
-    Возвращает кэш пользователей.
-    """
-    # 1. Убеждаемся, что БД инициализирована
+    """Загружает всех пользователей из БД при старте."""
     await db.connect()
-    
-    # 2. Миграция из старого JSON, если БД пуста
     await db.migrate_from_json(settings.USERS_FILE)
-    
-    # 3. Загружаем всех пользователей из БД в кэш
     users = await db.get_all_users()
     logger.info(f"📖 Loaded {len(users)} users from SQLite (cache).")
     return users
 
-# --- Адаптер для сохранения (JSON Emergency Dump) ---
+# --- Адаптер для сохранения ---
 def save_users_sync(users_db: Dict[str, Any]) -> None:
-    """
-    Синхронно сохраняет аварийный JSON-дамп (на случай сбоя БД).
-    """
+    """Синхронно сохраняет аварийный JSON-дамп."""
     try:
-        # Убеждаемся, что папка существует
         settings.DATA_DIR.mkdir(exist_ok=True, parents=True)
-        # Сохраняем во временный файл
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=settings.DATA_DIR) as tmp:
-            # Сохраняем только данные (data), без FSM
             clean_users_db = {uid: u for uid, u in users_db.items()}
             json.dump(clean_users_db, tmp, ensure_ascii=False, indent=2)
-        # Атомарно перемещаем
         shutil.move(tmp.name, settings.USERS_FILE)
         logger.info("💾 Emergency JSON snapshot saved.")
     except Exception as e:
@@ -51,13 +36,10 @@ def save_users_sync(users_db: Dict[str, Any]) -> None:
 
 # --- Загрузка статического контента ---
 async def load_static_data() -> dict:
-    """Асинхронная обертка для загрузки статики."""
     return await asyncio.to_thread(_load_static_data_sync)
 
 def _load_static_data_sync() -> dict:
-    """
-    Загружает весь статический контент (JSON-файлы) в кэш.
-    """
+    """Загружает весь статический контент (JSON-файлы) в кэш."""
     DATA_DIR = settings.DATA_DIR
     
     # 1. Копирование файлов из data_initial
@@ -66,7 +48,7 @@ def _load_static_data_sync() -> dict:
         logger.warning(f"⚠️ data_initial not found at {source_data_dir}, skipping sync.")
     else:
         DATA_DIR.mkdir(exist_ok=True, parents=True)
-        # ✅ ИСПРАВЛЕНО: Используем pathlib для перебора файлов
+        # Копируем все json файлы
         for item in source_data_dir.iterdir(): 
             if item.is_file() and item.suffix == '.json' and item.name != 'users.json':
                 shutil.copy2(item, DATA_DIR / item.name)
@@ -81,28 +63,24 @@ def _load_static_data_sync() -> dict:
             logger.error(f"Failed to load static JSON {path.name}: {e}")
             return []
 
-    # 2. Загрузка основных файлов
+    # 2. Загрузка всех файлов из FILE_MAPPING (ВКЛЮЧАЯ CHALLENGES)
     for key, filename in FILE_MAPPING.items():
-        # Ожидаем, что эти файлы содержат словари {lang: [items]}
         raw_data = load_json(DATA_DIR / filename)
-        if isinstance(raw_data, dict):
+        
+        # ✅ АВТО-ИСПРАВЛЕНИЕ СТРУКТУРЫ
+        # Если файл содержит список ["текст", "текст"], а мы ждем словарь {"ru": [...]},
+        # то привязываем этот список к дефолтному языку.
+        if isinstance(raw_data, list):
+             static_data[key] = {settings.DEFAULT_LANG: raw_data}
+             # logger.info(f"Fixed list structure for {key} -> assigned to {settings.DEFAULT_LANG}")
+        elif isinstance(raw_data, dict):
             static_data[key] = raw_data
         else:
-            # Если это простой список, оборачиваем его в словарь по умолчанию
-            static_data[key] = {settings.DEFAULT_LANG: raw_data}
+            static_data[key] = {}
 
-    # 3. Загрузка челленджей (challenges*.json)
-    challenges = {}
-    for p in DATA_DIR.glob("challenges*.json"):
-        data = load_json(p)
-        if isinstance(data, dict):
-            # Объединяем челленджи по языкам из разных файлов
-            for l, items in data.items():
-                challenges.setdefault(l, []).extend(items)
-    static_data["challenges"] = challenges
-    
-    
+    # Логируем количество
     rules_count = len(static_data.get('rules', {}).get(settings.DEFAULT_LANG, []))
-    motivations_count = len(static_data.get('motivations', {}).get(settings.DEFAULT_LANG, []))
-    logger.info(f"📚 Static data loaded. {rules_count} rules, {motivations_count} motivations.")
+    challenges_count = len(static_data.get('challenges', {}).get(settings.DEFAULT_LANG, []))
+    
+    logger.info(f"📚 Static data loaded. Rules: {rules_count}, Challenges: {challenges_count}")
     return static_data

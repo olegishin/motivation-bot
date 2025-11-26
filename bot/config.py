@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     # --- Админка ---
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "secret"
-    # ✅ ДОБАВЛЕНО: Секретный токен для API админки
     ADMIN_SECRET: str = "my_secret_token_123" 
     
     # Списки ID
@@ -52,8 +51,6 @@ class Settings(BaseSettings):
     BOT_USERNAME: str = "FotiniaBot"
 
     # --- 📍 ПУТИ К ФАЙЛАМ ---
-    # Внимание: для работы на Fly.io нужно, чтобы папка data была доступна.
-    # DATA_DIR берется из переменной окружения или по умолчанию 'data'
     DATA_DIR: Path = Path(os.getenv("DATA_DIR", "data")) 
     
     @property
@@ -69,7 +66,6 @@ class Settings(BaseSettings):
     @property
     def DATA_INITIAL_DIR(self) -> Path:
         """Путь к исходным данным."""
-        # Используем Path("data_initial") относительно корня проекта
         return Path(__file__).parent.parent / "data_initial" 
 
     model_config = SettingsConfigDict(
@@ -87,9 +83,14 @@ except Exception as e:
 # --- 📄 Сопоставление данных ---
 FILE_MAPPING = {
     "rules": "universe_laws.json",
-    "motivations": "fotinia_motivations.json", "ritm": "fotinia_ritm.json",
-    "morning_phrases": "fotinia_morning_phrases.json", "goals": "fotinia_goals.json",
-    "day_phrases": "fotinia_day_phrases.json", "evening_phrases": "fotinia_evening_phrases.json"
+    "motivations": "fotinia_motivations.json", 
+    "ritm": "fotinia_ritm.json",
+    "morning_phrases": "fotinia_morning_phrases.json", 
+    "goals": "fotinia_goals.json",
+    "day_phrases": "fotinia_day_phrases.json", 
+    "evening_phrases": "fotinia_evening_phrases.json",
+    # ✅ ДОБАВЛЕНО: Теперь загрузчик знает про этот файл
+    "challenges": "challenges.json"
 }
 
 # --- Производные константы ---
