@@ -110,8 +110,13 @@ class Database:
                     }
         return {"state": None, "data": {}}
 
-    async def update_fsm_storage(self, user_id: int, state: Optional[str] = None, data: Optional[Dict] = None):
+    async def update_fsm_storage(self, user_id: int, state: Any = None, data: Optional[Dict] = None):
         """Обновляет FSM state и data."""
+        
+        # ✅ FIX: Превращаем объект State в строку перед записью в БД
+        if state is not None:
+            state = str(state)
+
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "UPDATE users SET fsm_state = ?, fsm_data = ? WHERE user_id = ?",
@@ -201,8 +206,6 @@ class Database:
                 return (await cursor.fetchone())[0]
 
     async def count_paid_users(self) -> int:
-        # Так как данные в JSON, приходится делать выборку. 
-        # В SQLITE можно использовать json_extract, но для надежности переберем в питоне или используем LIKE
         count = 0
         all_users = await self.get_all_users()
         for u in all_users.values():
