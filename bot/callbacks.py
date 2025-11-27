@@ -10,7 +10,8 @@ from aiogram.fsm.context import FSMContext
 from bot.config import logger, settings
 from bot.localization import t, Lang
 from bot.database import db 
-from bot.content_handlers import handle_start_command, handle_pagination # <--- Добавил handle_pagination
+# ❌ handle_pagination УБРАЛ, так как мы вернули случайный выбор
+from bot.content_handlers import handle_start_command 
 from bot.challenges import accept_challenge, send_new_challenge_message, complete_challenge
 from bot.keyboards import get_reply_keyboard_for_user
 from bot.utils import get_user_lang
@@ -86,27 +87,24 @@ async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang):
 
 # --- ⚔️ ЧЕЛЛЕНДЖИ ---
 
-@router.callback_query(F.data == "accept_current_challenge")
-async def handle_accept_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):
-    # await query.answer() # <-- Убрал, так как accept_challenge сам делает answer
-    await accept_challenge(query, user_data, lang, state) 
+# ✅ ОБНОВЛЕНО: Ловит кнопки с индексом accept_challenge_idx:123
+# Старый accept_current_challenge убрали, так как логика изменилась
+@router.callback_query(F.data.startswith("accept_challenge_idx:"))
+async def handle_accept_challenge_idx(query: CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext):
+    # Передаем static_data, чтобы достать текст задания по индексу
+    await accept_challenge(query, static_data, user_data, lang, state) 
 
 @router.callback_query(F.data == "new_challenge")
 async def handle_new_challenge(query: CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext):
-    # await query.answer()
     await send_new_challenge_message(query, static_data, user_data, lang, state, is_edit=True) 
 
 @router.callback_query(F.data.startswith("complete_challenge:"))
 async def handle_complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):
-    # await query.answer()
     await complete_challenge(query, user_data, lang, state)
 
 
-# --- 📄 ПАГИНАЦИЯ (Списки) ---
-# ✅ ДОБАВЛЕНО: Листание списков мотивации и ритмов
-@router.callback_query(F.data.startswith("page:"))
-async def handle_pagination_callback(query: CallbackQuery, static_data: dict, lang: Lang):
-    await handle_pagination(query, static_data, lang)
+# --- 📄 ПАГИНАЦИЯ (УДАЛЕНО) ---
+# Мы вернули случайный выбор для списков (Ритмы, Мотивация), поэтому обработчик page: больше не нужен.
 
 
 # --- 🛠 АДМИН ---
