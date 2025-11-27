@@ -60,9 +60,15 @@ async def send_new_challenge_message(
         except Exception:
             formatted_challenge = challenge_raw
 
-        # --- 4. Сохранение состояния ---
+        # --- 4. Сохранение (В ПАМЯТЬ + В БАЗУ для надежности) ---
         await state.set_state(ChallengeStates.pending)
         await state.update_data(pending_challenge_text=formatted_challenge)
+        
+        # ✅ FIX: Сохраняем во временное поле в user_data, чтобы пережить рестарт
+        # (Можно использовать поле data или отдельное, здесь пишем в data для простоты)
+        user_data["pending_challenge_text"] = formatted_challenge
+        # Обновляем JSON в базе, чтобы сохранить это поле
+        await db.update_user(chat_id, pending_challenge_text=formatted_challenge)
 
         # --- 5. Клавиатура ---
         kb = InlineKeyboardBuilder()
@@ -71,24 +77,34 @@ async def send_new_challenge_message(
         
         text = t('challenge_new_day', lang, challenge_text=formatted_challenge)
         
-        sent_message = None
-        if is_edit and isinstance(event, CallbackQuery) and event.message:
-            sent_message = await event.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
-        elif isinstance(event, Message):
-            sent_message = await event.answer(text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
-        
-        if sent_message:
-            await state.update_data(challenge_message_id=sent_message.message_id)
+        # ✅ FIX: Ловим ошибку "Not Modified" вручную
+        try:
+            if is_edit and isinstance(event, CallbackQuery) and event.message:
+                await event.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
+            elif isinstance(event, Message):
+                await event.answer(text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
+        except Exception as e:
+            # Если текст такой же, игнорируем ошибку
+            if "message is not modified" in str(e).lower():
+                if isinstance(event, CallbackQuery): await event.answer()
+                return
+            raise e # Если другая ошибка - пробрасываем дальше
 
-        # --- 6. Метка в БД (чтобы знать, что сегодня смотрели) ---
+        # --- 6. Метка даты ---
         user_tz = get_user_tz(user_data)
         today_iso = datetime.now(user_tz).date().isoformat()
         
+        # Обновляем дату, но pending_text уже сохранен выше через update_user, 
+        # поэтому здесь можно не дублировать, или обновить всё разом.
         await db.update_user(chat_id, last_challenge_date=today_iso, challenge_accepted=False)
         user_data["last_challenge_date"] = today_iso
         user_data["challenge_accepted"] = False
 
     except Exception as e:
+        # Еще одна проверка на Not Modified на всякий случай
+        if "message is not modified" in str(e).lower():
+            return
+            
         logger.exception(f"CRITICAL ERROR in send_challenge: {e}")
         await safe_send(event.bot, chat_id, f"⚠️ Error: {str(e)}")
 
@@ -96,28 +112,28 @@ async def send_new_challenge_message(
 async def accept_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):
     chat_id = query.from_user.id
     
-    # ГЛОБАЛЬНЫЙ TRY/EXCEPT для отлова "тихих" ошибок
     try:
+        # --- 1. Попытка получить текст (Сначала память, потом база) ---
         fsm_data = await state.get_data()
         challenge_text = fsm_data.get("pending_challenge_text")
+        
+        # ✅ FIX: Если в памяти пусто (был рестарт), берем из базы
+        if not challenge_text:
+            challenge_text = user_data.get("pending_challenge_text")
         
         if not challenge_text:
             await query.answer("⚠️ Данные устарели. Нажмите 'Новый'!", show_alert=True)
             return
 
-        # --- 1. Безопасное получение истории ---
+        # --- 2. Безопасное получение истории ---
         challenge_history = user_data.get("challenges", [])
-        
-        # Если это строка (JSON), декодируем
         if isinstance(challenge_history, str):
             try: challenge_history = json.loads(challenge_history)
             except: challenge_history = []
-            
-        # Если это None или что-то левое, делаем список
         if not isinstance(challenge_history, list):
             challenge_history = []
             
-        # --- 2. Добавление записи ---
+        # --- 3. Добавление записи ---
         challenge_entry = {
             "text": challenge_text, 
             "accepted": datetime.now(ZoneInfo("UTC")).isoformat(), 
@@ -126,32 +142,40 @@ async def accept_challenge(query: CallbackQuery, user_data: dict, lang: Lang, st
         challenge_history.append(challenge_entry)
         accepted_challenge_index = len(challenge_history) - 1
         
-        # --- 3. Запись в БД ---
-        # Важно: сохраняем как JSON-строку
+        # --- 4. Запись в БД ---
         history_json = json.dumps(challenge_history, ensure_ascii=False)
-        await db.update_user(chat_id, challenge_accepted=True, challenges=history_json)
         
-        # Обновляем кэш в памяти (важно сохранить как список, чтобы дальше работать с ним)
+        # Убираем pending_challenge_text из базы (очистка)
+        if "pending_challenge_text" in user_data:
+            del user_data["pending_challenge_text"]
+            
+        # Обновляем базу: challenges + очистка pending
+        # Примечание: update_user сохраняет переданные поля в JSON. 
+        # Чтобы удалить поле, мы можем перезаписать весь JSON или просто оставить его (он не мешает).
+        # Проще перезаписать.
+        await db.update_user(chat_id, challenge_accepted=True, challenges=history_json, pending_challenge_text=None)
+        
         user_data["challenge_accepted"] = True
         user_data["challenges"] = challenge_history
         
-        await state.set_state(None)
+        await state.clear()
         
-        # --- 4. Обновление сообщения ---
+        # --- 5. Обновление сообщения ---
         kb = InlineKeyboardBuilder()
         kb.button(text=t('btn_challenge_complete', lang), callback_data=f"complete_challenge:{accepted_challenge_index}")
         
         try:
             await query.message.edit_text(t('challenge_accepted_msg', lang, challenge_text=challenge_text), reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
-        except TelegramBadRequest: 
-            pass 
-        finally: 
-            # Отвечаем на колбэк, чтобы убрать часики
-            await query.answer(t('challenge_accepted_msg', lang))
+        except Exception as e:
+            if "message is not modified" in str(e).lower():
+                pass
+            else:
+                logger.error(f"Error editing message on accept: {e}")
+                
+        await query.answer(t('challenge_accepted_msg', lang))
             
     except Exception as e:
         logger.exception(f"CRITICAL ERROR in accept_challenge: {e}")
-        await safe_send(query.bot, chat_id, f"⚠️ Error in accept: {str(e)}")
         await query.answer("Error!", show_alert=True)
 
 
@@ -160,7 +184,6 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
     try:
         challenge_index_to_complete = int(query.data.split(":")[-1])
         
-        # --- 1. Безопасное получение истории ---
         challenge_history = user_data.get("challenges", [])
         if isinstance(challenge_history, str): 
             try: challenge_history = json.loads(challenge_history)
@@ -168,7 +191,6 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
         if not isinstance(challenge_history, list):
             challenge_history = []
         
-        # --- 2. Проверка индекса ---
         if 0 <= challenge_index_to_complete < len(challenge_history):
             if challenge_history[challenge_index_to_complete].get("completed"):
                 await query.answer(t('challenge_completed_msg', lang))
@@ -177,7 +199,6 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
             challenge_history[challenge_index_to_complete]["completed"] = datetime.now(ZoneInfo("UTC")).isoformat()
             current_streak = user_data.get("challenge_streak", 0) + 1
             
-            # --- 3. Сохранение ---
             history_json = json.dumps(challenge_history, ensure_ascii=False)
             await db.update_user(chat_id, challenge_streak=current_streak, challenges=history_json, challenge_accepted=False)
             
@@ -186,11 +207,13 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
 
             await state.clear()
             
-            # --- 4. Визуал ---
             original_text = query.message.text
             confirmation_text = t('challenge_completed_msg', lang)
             
-            await query.message.edit_text(f"{original_text}\n\n<b>{confirmation_text}</b>", reply_markup=None, parse_mode=ParseMode.HTML)
+            try:
+                await query.message.edit_text(f"{original_text}\n\n<b>{confirmation_text}</b>", reply_markup=None, parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
 
             if current_streak == 3:
                 await safe_send(query.bot, chat_id, t('challenge_streak_3_level_1', lang, name=user_data.get("name", "друг")))
@@ -199,7 +222,6 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
             
     except Exception as e:
         logger.exception(f"Error processing complete_challenge for {chat_id}: {e}")
-        await safe_send(query.bot, chat_id, f"⚠️ Error in complete: {str(e)}")
         await query.answer("Error!", show_alert=True)
     finally:
         try: await query.answer()

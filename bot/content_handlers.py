@@ -6,7 +6,12 @@ import json
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, Any
-from aiogram.types import Message
+
+# ✅ ДОБАВЛЕНО: Импорты для работы кнопок и колбэков
+from aiogram.types import Message, CallbackQuery 
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 
 # --- Импорты ---
 from bot.config import logger, settings, SPECIAL_USER_IDS
@@ -15,7 +20,7 @@ from bot.database import db
 from bot.keyboards import (
     get_reply_keyboard_for_user, get_payment_keyboard,
     get_main_keyboard, get_cooldown_keyboard,
-    get_broadcast_keyboard # ✅ ДОБАВЛЕНО: Импорт клавиатуры рассылки
+    get_broadcast_keyboard 
 )
 from bot.utils import (
     get_demo_days, get_cooldown_days, get_max_demo_cycles,
@@ -46,7 +51,6 @@ async def handle_start_command(message: Message, static_data: dict, user_data: d
         logger.info(f"👤 New user {chat_id} activated demo. Lang: {lang}. Demo: {demo_duration_days} days.")
         
         if chat_id != settings.ADMIN_CHAT_ID:
-            from aiogram.utils.keyboard import InlineKeyboardBuilder 
             admin_data = await db.get_user(settings.ADMIN_CHAT_ID)
             admin_lang = admin_data.get("language", "ru") if admin_data else "ru"
             
@@ -123,6 +127,67 @@ async def handle_expired_demo(message: Message, user_data: dict, lang: Lang):
         markup = get_payment_keyboard(lang, is_test_user, show_new_demo=(demo_count < max_cycles))
         await message.answer(t('demo_expired_choice', lang, name=user_name, demo_days=demo_days), reply_markup=markup)
 
+
+# --- 2. Логика отправки контента и Пагинации ---
+
+async def handle_pagination(query: CallbackQuery, static_data: dict, lang: Lang):
+    """
+    ✅ ДОБАВЛЕНО: Обработка листания списков (Мотивация, Ритмы и т.д.).
+    Format callback_data: "page:category:index"
+    """
+    try:
+        parts = query.data.split(":")
+        # page:motivations:0
+        category = parts[1]
+        current_index = int(parts[2])
+
+        # 1. Получаем список контента
+        content_list = static_data.get(category, {}).get(lang, [])
+        if not content_list:
+            content_list = static_data.get(category, {}).get("ru", [])
+
+        if not content_list:
+            await query.answer("Список пуст / List empty", show_alert=True)
+            return
+
+        total_items = len(content_list)
+        
+        # Зацикливание
+        if current_index < 0:
+            current_index = total_items - 1
+        elif current_index >= total_items:
+            current_index = 0
+
+        # 2. Получаем текст
+        item = content_list[current_index]
+        text_content = ""
+        if isinstance(item, str):
+            text_content = item
+        elif isinstance(item, dict):
+            text_content = item.get("text") or item.get("content") or str(item)
+        
+        # Добавляем счетчик страниц
+        final_text = f"{text_content}\n\n📖 <i>{current_index + 1} / {total_items}</i>"
+
+        # 3. Кнопки
+        kb = InlineKeyboardBuilder()
+        kb.button(text="⬅️", callback_data=f"page:{category}:{current_index - 1}")
+        kb.button(text="➡️", callback_data=f"page:{category}:{current_index + 1}")
+        # Можно добавить лайк, если нужно
+        # kb.row()
+        # kb.button(text="❤️", callback_data="reaction:like")
+        
+        # 4. Редактируем
+        try:
+            await query.message.edit_text(final_text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
+        except TelegramBadRequest:
+            await query.answer()
+            
+    except Exception as e:
+        logger.error(f"Pagination error: {e}")
+        await query.answer("Error parsing page", show_alert=True)
+
+
 async def send_from_list(message: Message, static_data: dict, user_data: dict, lang: Lang, key: str, title_key: str):
     title = t(title_key, lang)
     data = static_data.get(key, {})
@@ -134,12 +199,30 @@ async def send_from_list(message: Message, static_data: dict, user_data: dict, l
         
     user_name = user_data.get("name", "друг")
     try:
-        item = random.choice(item_list).format(name=user_name)
+        # Если это первый элемент списка, отправляем его с кнопками пагинации
+        # Но для "Случайной" фразы (фраза дня) лучше рандом.
+        # Если мы хотим листать, то нужно отправлять с index=0 и кнопками.
+        # В ТЗ было "Случайная фраза" для дня/утра, а списки (Мотивация) - листать.
         
-        # ✅ ИСПРАВЛЕНО: Добавляем кнопки Like/Dislike/Share и передаем текст для цитаты
-        reaction_keyboard = get_broadcast_keyboard(lang, quote_text=item)
-        
-        await message.answer(f"<b>{title}</b>\n{item}", parse_mode="HTML", reply_markup=reaction_keyboard)
+        # Если это Мотивация или Ритмы (которые листаются):
+        if key in ['motivations', 'ritm', 'universe_laws', 'goals']:
+             # Отправляем первый элемент и кнопки пагинации
+             item = item_list[0]
+             text_content = item if isinstance(item, str) else item.get("text", str(item))
+             final_text = f"{text_content}\n\n📖 <i>1 / {len(item_list)}</i>"
+             
+             kb = InlineKeyboardBuilder()
+             kb.button(text="⬅️", callback_data=f"page:{key}:-1") # Сразу даем возможность пойти назад (в конец)
+             kb.button(text="➡️", callback_data=f"page:{key}:1")
+             
+             await message.answer(final_text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
+             
+        else:
+            # Для фраз дня/утра/вечера - просто случайная цитата с лайками (как у тебя было)
+            item = random.choice(item_list).format(name=user_name)
+            reaction_keyboard = get_broadcast_keyboard(lang, quote_text=item)
+            await message.answer(f"<b>{title}</b>\n{item}", parse_mode="HTML", reply_markup=reaction_keyboard)
+            
     except Exception as e:
         logger.error(f"Error in send_from_list: {e}")
         await message.answer(t('list_error_unexpected', lang, title=title))
