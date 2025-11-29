@@ -125,6 +125,14 @@ class Database:
             except Exception as e:
                 logger.error(f"❌ Migration failed: {e}")
 
+    # ✅ НОВЫЙ МЕТОД: УДАЛЕНИЕ ЮЗЕРА
+    async def delete_user(self, user_id: int):
+        """Полностью удаляет пользователя из базы."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+            await db.commit()
+            logger.info(f"🗑️ User {user_id} deleted from SQLite.")
+
     async def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
         """Получает данные пользователя (data) как словарь."""
         async with aiosqlite.connect(self.db_path) as db:

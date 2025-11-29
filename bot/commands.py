@@ -115,6 +115,29 @@ async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bo
     await safe_send(bot, target_id_int, t('user_grant_notification', target_lang))
     logger.info(f"Admin {message.from_user.id} granted Premium to {target_id_str}")
 
+# ✅ НОВАЯ КОМАНДА: ПОЛНОЕ УДАЛЕНИЕ ЮЗЕРА
+@router.message(Command("wipe"))
+async def wipe_user_command(message: Message, users_db: dict, is_admin: bool):
+    if not is_admin: return
+
+    try:
+        # Получаем ID из сообщения: /wipe 123456789
+        target_id_str = message.text.split()[1]
+        target_id = int(target_id_str)
+    except (IndexError, ValueError):
+        await message.answer("⚠️ Формат: <code>/wipe ID_ПОЛЬЗОВАТЕЛЯ</code>", parse_mode="HTML")
+        return
+
+    # 1. Удаляем из БД
+    await db.delete_user(target_id)
+
+    # 2. Удаляем из кэша памяти (чтобы бот сразу "забыл" его)
+    if target_id_str in users_db:
+        users_db.pop(target_id_str)
+
+    await message.answer(f"🗑️ Пользователь <code>{target_id}</code> полностью удален.\nТеперь для бота он — новичок.")
+    logger.info(f"Admin {message.from_user.id} wiped user {target_id}")
+
 async def send_stats_report(message: Message, users_db: dict, lang: Lang):
     total = 0; active = 0; active_first = 0; active_repeat = 0; inactive = 0; inactive_demo_expired = 0; inactive_blocked = 0
     for user_id_str, u in users_db.items():

@@ -106,7 +106,7 @@ async def admin_dashboard(request: Request, auth = Depends(require_admin)):
     # Приводим ключи к int для корректной работы Jinja2 в шаблоне admin.html
     # Хотя Jinja2 может работать и со str ключами, это чище
     users_int_keys = {int(k): v for k, v in users.items() if k.isdigit()}
-    
+     
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "users": users_int_keys,
@@ -131,6 +131,12 @@ async def admin_action(
     try:
         uid = int(user_id)
     except:
+        return RedirectResponse("/admin", status_code=303)
+
+    if action == "delete_user":
+        # ✅ Удаление (даже если юзер не найден через get_user, удаляем по ID)
+        await db.delete_user(uid)
+        logger.info(f"User {uid} DELETED via Admin Panel")
         return RedirectResponse("/admin", status_code=303)
 
     user = await db.get_user(uid)

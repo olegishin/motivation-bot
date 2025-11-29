@@ -113,6 +113,14 @@
                                                 <button type="submit" class="btn btn-sm btn-outline-success" title="Разбанить">✅</button>
                                             {% endif %}
                                         </form>
+
+                                        <!-- 🗑️ КНОПКА УДАЛЕНИЯ -->
+                                        <form action="/admin/action" method="post" onsubmit="return confirm('⚠️ ВНИМАНИЕ: Вы уверены, что хотите ПОЛНОСТЬЮ УДАЛИТЬ пользователя? Это действие нельзя отменить.');">
+                                            <input type="hidden" name="user_id" value="{{ uid }}">
+                                            <input type="hidden" name="action" value="delete_user">
+                                            <input type="hidden" name="secret_token" value="{{ admin_secret }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-dark" title="Удалить навсегда">🗑️</button>
+                                        </form>
                                     </div>
                                 </td>
                             </tr>
