@@ -1,6 +1,8 @@
+# requirements.txt (Рекомендованная финальная версия)
+
 fastapi>=0.110.0
-uvicorn>=0.29.0
-aiogram>=3.8.0
+uvicorn>=0.29.0  # Убрано [standard]
+aiogram>=3.10.0
 httpx>=0.27.0
 pydantic-settings>=2.0.0
 apscheduler>=3.10.0
@@ -9,3 +11,8 @@ tzdata
 jinja2>=3.1.0
 python-multipart>=0.0.6
 aiosqlite>=0.19.0
+
+# НОВАЯ АДМИНКА С 2FA — ЭТИ ТРИ СТРОКИ ОБЯЗАТЕЛЬНО:
+pyotp>=2.9.0
+PyJWT>=2.8.0 # Убедились, что присутствует
+slowapi>=0.1.9

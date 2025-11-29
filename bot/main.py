@@ -71,10 +71,10 @@ async def lifespan(app: FastAPI):
     dp.include_router(commands_router)
     dp.include_router(button_router)
     dp.include_router(callback_router)
-    # Admin router здесь не нужен, он для FastAPI
     
     dp.update.outer_middleware(AccessMiddleware())
     
+    # Настраиваем задачи (теперь там корректное время 06:00 UTC)
     await setup_jobs_and_cache(bot, users_db_cache, static_data)
     
     webhook_url = f"{settings.WEBHOOK_URL.rstrip('/')}/webhook/{settings.BOT_TOKEN}"
@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
     app.state.bot = bot
     app.state.dispatcher = dp
     
-    logger.info(f"✅ Lifespan: Бот полностью запущен (v10.25 DB_FSM)")
+    logger.info(f"✅ Lifespan: Бот полностью запущен (v10.28 Stable)")
     
     try:
         await bot.send_message(settings.ADMIN_CHAT_ID, t('admin_bot_started', lang="ru"))
@@ -122,7 +122,7 @@ app.include_router(admin_router)
 
 @app.get("/")
 async def root():
-    return {"status": "FotiniaBot v10.25 is alive"}
+    return {"status": "FotiniaBot v10.28 is alive"}
 
 @app.post("/webhook/{token}")
 async def webhook_handler(request: Request, token: str):

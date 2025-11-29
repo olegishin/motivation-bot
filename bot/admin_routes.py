@@ -1,110 +1,156 @@
-# 11 - bot/admin_routes.py
-# FastAPI роуты для админки
+# 13 - bot/admin_routes.py
+# FastAPI роуты для админки (JWT + TOTP Auth)
+# bot/admin_routes.py — НАСТОЯЩАЯ 2FA + JWT + CSRF (2025)
 
 import secrets
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Request, Depends, HTTPException, status, Form
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse
+import pyotp
+import jwt
+from datetime import datetime, timedelta, timezone
 
-# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
-from bot.config import settings
+from fastapi import APIRouter, Request, Depends, HTTPException, Form, Response, Cookie
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from bot.config import settings, logger
 from bot.database import db
 from bot.utils import get_demo_days
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+# ✅ Используем путь templates, как настроено в main.py
+templates = Jinja2Templates(directory="bot/templates") 
 
-# Шаблоны ищем в папке templates в корне проекта
-templates = Jinja2Templates(directory="templates")
-security = HTTPBasic()
+# --- TOTP ---
+# Инициализация TOTP. ADMIN_2FA_SECRET находится в bot/config.py
+totp = pyotp.TOTP(settings.ADMIN_2FA_SECRET, interval=30)
 
-def check_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    """Проверка логина и пароля."""
-    correct_username = secrets.compare_digest(credentials.username, settings.ADMIN_USERNAME)
-    correct_password = secrets.compare_digest(credentials.password, settings.ADMIN_PASSWORD)
-    
-    if not (correct_username and correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+# --- JWT Константы ---
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY = timedelta(days=7)
 
-@router.get("/", response_class=HTMLResponse)
-async def admin_dashboard(request: Request, username: str = Depends(check_auth)):
-    """Главная страница админки."""
-    # Загружаем свежие данные из БД при каждом заходе
-    users_db_cache = await db.get_all_users()
-    request.app.state.users_db = users_db_cache # Обновляем кэш
-    
-    return templates.TemplateResponse(
-        "admin.html", 
-        {
-            "request": request,
-            "users": users_db_cache,
-            "total_users": len(users_db_cache)
-        }
+def create_jwt() -> str:
+    """Создает подписанный JWT токен со сроком действия."""
+    payload = {"exp": datetime.now(timezone.utc) + JWT_EXPIRY}
+    return jwt.encode(payload, settings.ADMIN_JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def verify_jwt(token: str | None) -> bool:
+    """Проверяет токен на валидность и срок действия."""
+    if not token:
+        return False
+    try:
+        jwt.decode(token, settings.ADMIN_JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return True
+    except:
+        return False
+
+# --- Проверка аутентификации (Dependency) ---
+async def require_admin(request: Request):
+    """Dependency для защиты роутов: проверяет JWT-куку."""
+    token = request.cookies.get("admin_jwt")
+    if not verify_jwt(token):
+        # Перенаправляем на логин с кодом 303 (See Other)
+        raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
+    return True
+
+# --- Страница входа ---
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("admin_login.html", {"request": request})
+
+# --- Вход (логин + пароль + TOTP) ---
+@router.post("/login")
+async def login(
+    request: Request, # ✅ ИСПРАВЛЕНИЕ: Добавлен request для логирования и ошибок
+    response: Response,
+    username: str = Form(...),
+    password: str = Form(...),
+    totp_code: str = Form(...),
+):
+    # 1. Проверка логина и пароля
+    if not (secrets.compare_digest(username, settings.ADMIN_USERNAME) and
+            secrets.compare_digest(password, settings.ADMIN_PASSWORD)):
+        return templates.TemplateResponse("admin_login.html", {
+            "request": request, "error": "Неверный логин или пароль"
+        })
+
+    # 2. Проверка TOTP
+    if not totp.verify(totp_code.strip(), valid_window=1):
+        return templates.TemplateResponse("admin_login.html", {
+            "request": request, "error": "Неверный код 2FA"
+        })
+
+    # 3. Успешно — выдаём JWT-куку
+    token = create_jwt()
+    response = RedirectResponse(url="/admin/", status_code=303)
+    response.set_cookie(
+        key="admin_jwt",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=60*60*24*7 # 7 дней
     )
+    logger.info(f"Admin login OK from {request.client.host}")
+    return response
 
+# --- Выход ---
+@router.get("/logout")
+async def logout(response: Response):
+    response = RedirectResponse(url="/admin/login")
+    response.delete_cookie("admin_jwt")
+    return response
+
+# --- Главная админка ---
+@router.get("/", response_class=HTMLResponse)
+async def admin_dashboard(request: Request, auth = Depends(require_admin)):
+    users = await db.get_all_users()
+    # Приводим ключи к int для корректной работы Jinja2 в шаблоне admin.html
+    # Хотя Jinja2 может работать и со str ключами, это чище
+    users_int_keys = {int(k): v for k, v in users.items() if k.isdigit()}
+    
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "users": users_int_keys,
+        "total_users": len(users_int_keys),
+        "admin_secret": settings.ADMIN_SECRET  # для CSRF
+    })
+
+# --- Действия ---
 @router.post("/action")
 async def admin_action(
     request: Request,
     user_id: str = Form(...),
     action: str = Form(...),
-    username: str = Depends(check_auth)
+    secret_token: str = Form(...),
+    auth = Depends(require_admin) # Защита роута
 ):
-    """
-    Обработка кнопок действий.
-    """
+    # CSRF-проверка
+    if secret_token != settings.ADMIN_SECRET:
+        logger.warning(f"CSRF Token Mismatch! Action blocked from {request.client.host}")
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
     try:
-        user_id_int = int(user_id)
-    except ValueError:
-        return RedirectResponse(url="/admin", status_code=303)
+        uid = int(user_id)
+    except:
+        return RedirectResponse("/admin", status_code=303)
 
-    # Получаем актуальные данные пользователя
-    user_data = await db.get_user(user_id_int)
-    
-    if not user_data:
-        return RedirectResponse(url="/admin", status_code=303)
+    user = await db.get_user(uid)
+    if not user:
+        return RedirectResponse("/admin", status_code=303)
 
-    # --- Логика действий (сразу пишем в БД) ---
     if action == "give_premium":
-        new_data = {
-            "is_paid": True,
-            "status": "active_paid",
-            "active": True,
-            "demo_expiration": (datetime.now(ZoneInfo("UTC")) + timedelta(days=30)).isoformat()
-        }
-        await db.update_user(user_id_int, **new_data)
+        await db.update_user(uid, is_paid=True, status="active_paid", active=True,
+                             demo_expiration=(datetime.now(timezone.utc) + timedelta(days=30)).isoformat())
         
     elif action == "reset_demo":
-        # Определяем длительность (учитываем, тестер это или нет)
-        demo_duration = get_demo_days(user_id_int)
-        
-        new_data = {
-            "is_paid": False,
-            "demo_count": 1,
-            "active": True,
-            "status": "active_demo",
-            # ✅ ИСПРАВЛЕНО: Используем settings напрямую
-            "demo_expiration": (datetime.now(ZoneInfo("UTC")) + timedelta(days=demo_duration)).isoformat(), 
-            "sent_expiry_warning": False,
-            "challenge_streak": 0,
-            "last_challenge_date": None,
-            "last_rules_date": None,
-            "rules_shown_count": 0,
-            "rules_indices_today": [],
-        }
-        await db.update_user(user_id_int, **new_data)
-        
+        days = get_demo_days(uid)
+        # ✅ Увеличиваем счетчик демо
+        new_demo_count = user.get("demo_count", 0) + 1 
+        await db.update_user(uid, is_paid=False, demo_count=new_demo_count, active=True, status="active_demo",
+                             demo_expiration=(datetime.now(timezone.utc) + timedelta(days=days)).isoformat(),
+                             sent_expiry_warning=False, challenge_streak=0,
+                             last_challenge_date=None, last_rules_date=None)
+                             
     elif action == "toggle_ban":
-        new_active_status = not user_data.get("active", True)
-        await db.update_user(user_id_int, active=new_active_status)
-    
-    # Принудительно обновляем кэш в памяти приложения после изменения БД
-    request.app.state.users_db = await db.get_all_users()
-    
-    return RedirectResponse(url="/admin", status_code=303)
+        await db.update_user(uid, active=not user.get("active", True))
+
+    return RedirectResponse("/admin", status_code=303)

@@ -1,4 +1,4 @@
-# 6 - bot/content_handlers.py
+# 08 - bot/content_handlers.py
 # - Логика контента: случайные фразы вместо пагинации
 
 import random

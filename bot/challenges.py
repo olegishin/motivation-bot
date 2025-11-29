@@ -1,4 +1,4 @@
-# 7 - bot/challenges.py
+# 09 - bot/challenges.py
 # Обработка/логика челленджей (Stateless version - Индексный метод)
 
 import random

@@ -1,4 +1,4 @@
-# 9 - bot/utils.py
+# 05 - bot/utils.py
 # Утилиты и Middleware
 
 import asyncio
@@ -101,8 +101,8 @@ class AccessMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         
-        user: Optional[Any] = None
-        message: Optional[Message] = None
+        user = None
+        message = None
         
         if event.message:
             user = event.message.from_user
@@ -116,9 +116,11 @@ class AccessMiddleware(BaseMiddleware):
 
         chat_id = user.id
         
+        # 1. Достаем свежие данные из БД
         user_data = await db.get_user(chat_id)
         is_new_user = not bool(user_data)
         
+        # 2. Если юзера нет в БД — создаем на лету (Чтобы кнопки работали у старых юзеров и админа)
         if is_new_user:
             lang_code = user.language_code if user.language_code in ["ru", "ua", "en"] else "ru"
             await db.add_user(
@@ -130,6 +132,10 @@ class AccessMiddleware(BaseMiddleware):
             )
             user_data = await db.get_user(chat_id)
 
+        # 3. 🔥 Обновляем глобальный кэш (чтобы админ видел актуальную стату сразу)
+        if "users_db" in data:
+            data["users_db"][str(chat_id)] = user_data
+
         lang = get_user_lang(user_data)
         is_admin_flag = is_admin(chat_id)
 
@@ -140,12 +146,15 @@ class AccessMiddleware(BaseMiddleware):
             "is_new_user": is_new_user
         })
 
-        if message and message.text:
+        # 4. Логика проверки доступа (Demo / Paid)
+        if message and hasattr(message, 'text') and message.text:
             text = message.text
 
+            # Если забанен
             if user_data.get("active") is False and not is_admin_flag:
                 return
 
+            # Админы, тестеры и платные проходят всегда
             if is_admin_flag or chat_id in SPECIAL_USER_IDS or user_data.get("is_paid", False):
                 return await handler(event, data)
 

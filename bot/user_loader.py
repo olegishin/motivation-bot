@@ -1,4 +1,4 @@
-# 14 - bot/user_loader.py
+# 06 - bot/user_loader.py
 # Загрузка данных и миграция
 
 import asyncio

@@ -1,4 +1,4 @@
-# 13 - bot/commands.py
+# 12 - bot/commands.py
 # Обработчики команд Aiogram
 
 import json

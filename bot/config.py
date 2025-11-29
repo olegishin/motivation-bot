@@ -1,4 +1,4 @@
-# 1 - bot/config.py
+# 01 - bot/config.py
 # Конфигурация бота и логирование.
 
 import os
@@ -8,6 +8,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Set
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import pyotp  # ✅ ДОБАВЛЕНО для проверки TOTP в рантайме
+import jwt  # ✅ ДОБАВЛЕНО для проверки JWT в рантайме
 
 # ----------------- КОНФИГУРАЦИЯ ЛОГОВ -----------------
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
@@ -19,40 +21,46 @@ if not logger.hasHandlers():
 logger.propagate = False
 logger.setLevel(logging.DEBUG)
 
-
 # ----------------- КОНФИГУРАЦИЯ .ENV -----------------
 class Settings(BaseSettings):
-    # Загрузка из .env
+    # === Основные ===
     BOT_TOKEN: str
     ADMIN_CHAT_ID: int
     WEBHOOK_URL: str
-    
-    # Константы по умолчанию
+
+    # === Язык и часовой пояс ===
     DEFAULT_LANG: str = "ru"
     DEFAULT_TZ_KEY: str = "Europe/Kiev"
-    
-    # --- Админка ---
+
+    # === Админка (УСТАРЕВШЕЕ / Legacy, можно удалить после деплоя) ===
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "secret"
-    ADMIN_SECRET: str = "my_secret_token_123" 
-    
-    # Списки ID
+    ADMIN_SECRET: str = "my_secret_token_123"
+
+    # === НОВАЯ БЕЗОПАСНАЯ АДМИНКА (JWT + 2FA) ===
+    # Секрет для подписи JWT-токенов (обязательно поменяй в .env!)
+    ADMIN_JWT_SECRET: str = "change-me-to-very-strong-random-string-2025"
+
+    # Секрет для 2FA (TOTP) — сгенерируй через: python -c "import pyotp; print(pyotp.random_base32())"
+    ADMIN_2FA_SECRET: str = "JBSWY3DPEHPK3PXP"  # ← заменить на свой!
+
+    # === Роли и тестеры ===
     TESTER_USER_IDS: Set[int] = {290711961, 6104624108}
     SIMULATOR_USER_IDS: Set[int] = {6112492697}
 
-    # Настройки логики
+    # === Логика демо ===
     REGULAR_DEMO_DAYS: int = 5
     REGULAR_COOLDOWN_DAYS: int = 1
     TESTER_DEMO_DAYS: int = 1
     TESTER_COOLDOWN_DAYS: int = 1
     RULES_PER_DAY_LIMIT: int = 3
     MAX_DEMO_CYCLES: int = 2
-    
+
     BOT_USERNAME: str = "FotiniaBot"
 
-    # --- 📍 ПУТИ К ФАЙЛАМ ---
-    DATA_DIR: Path = Path(os.getenv("DATA_DIR", "data")) 
-    
+    # === Пути ===
+    DATA_DIR: Path = Path(os.getenv("DATA_DIR", "data"))
+
     @property
     def USERS_FILE(self) -> Path:
         """Путь к файлу users.json (для миграции)."""
@@ -66,30 +74,33 @@ class Settings(BaseSettings):
     @property
     def DATA_INITIAL_DIR(self) -> Path:
         """Путь к исходным данным."""
-        return Path(__file__).parent.parent / "data_initial" 
+        return Path(__file__).parent.parent / "data_initial"
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra='ignore'
+        extra="ignore"
     )
 
+# ----------------- ЗАГРУЗКА -----------------
 try:
     settings = Settings()
+    # ✅ Проверка, что 2FA секрет используется (это не требуется для работы, но полезно для логирования)
+    is_2fa_enabled = settings.ADMIN_2FA_SECRET != "JBSWY3DPEHPK3PXP" 
+
 except Exception as e:
     logger.critical(f"❌ НЕ УДАЛОСЬ ЗАГРУЗИТЬ .env И КОНФИГ: {e}")
     sys.exit(f"Критическая ошибка: {e}")
 
-# --- 📄 Сопоставление данных ---
+# --- Сопоставление файлов контента ---
 FILE_MAPPING = {
     "rules": "universe_laws.json",
-    "motivations": "fotinia_motivations.json", 
+    "motivations": "fotinia_motivations.json",
     "ritm": "fotinia_ritm.json",
-    "morning_phrases": "fotinia_morning_phrases.json", 
+    "morning_phrases": "fotinia_morning_phrases.json",
     "goals": "fotinia_goals.json",
-    "day_phrases": "fotinia_day_phrases.json", 
+    "day_phrases": "fotinia_day_phrases.json",
     "evening_phrases": "fotinia_evening_phrases.json",
-    # ✅ ДОБАВЛЕНО: Теперь загрузчик знает про этот файл
     "challenges": "challenges.json"
 }
 
@@ -99,6 +110,7 @@ SPECIAL_USER_IDS = settings.TESTER_USER_IDS.union(settings.SIMULATOR_USER_IDS).u
 
 # Логирование при старте
 logger.info("🤖 Bot config loaded...")
-logger.info(f"🔑 ADMIN_CHAT_ID configured as: {settings.ADMIN_CHAT_ID}")
-logger.info(f"🧪 TESTER_USER_IDS configured as: {settings.TESTER_USER_IDS}")
-logger.info(f"📂 DATA_DIR is: {settings.DATA_DIR}")
+logger.info(f"🔑 ADMIN_CHAT_ID: {settings.ADMIN_CHAT_ID}")
+logger.info(f"🧪 TESTER_USER_IDS: {settings.TESTER_USER_IDS}")
+logger.info(f"📂 DATA_DIR: {settings.DATA_DIR}")
+logger.info(f"🛡️ 2FA enabled: {'YES' if is_2fa_enabled else 'NO (default secret!)'}")
