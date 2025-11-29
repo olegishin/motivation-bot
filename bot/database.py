@@ -1,4 +1,4 @@
-# 3 - bot/database.py
+# 02 - bot/database.py
 # Менеджер базы данных SQLite
 
 import json
@@ -43,9 +43,44 @@ class Database:
             await db.commit()
             logger.info("💾 Database connected and tables checked.")
             
-    # Alias для connect
+    # 🔥 ОБНОВЛЕННЫЙ МЕТОД INIT С МИГРАЦИЕЙ POINTS
     async def init(self):
         await self.connect()
+        
+        # --- 🛡️ МИГРАЦИЯ JSON (Safe Fix) ---
+        # Проверяем старых пользователей и добавляем им points, если нет
+        logger.info("🔍 Checking for JSON schema updates (points)...")
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            # Берем всех пользователей
+            async with db.execute("SELECT user_id, data FROM users") as cursor:
+                rows = await cursor.fetchall()
+                
+                updates = []
+                for row in rows:
+                    try:
+                        u_data = json.loads(row["data"])
+                        changed = False
+                        
+                        # 1. Миграция Points
+                        if "points" not in u_data:
+                            u_data["points"] = 0
+                            changed = True
+                            
+                        # Здесь можно добавлять другие поля в будущем...
+                        
+                        if changed:
+                            updates.append((json.dumps(u_data, ensure_ascii=False), row["user_id"]))
+                    except Exception:
+                        continue
+                
+                # Если нашли кого обновлять — обновляем пачкой
+                if updates:
+                    await db.executemany("UPDATE users SET data = ? WHERE user_id = ?", updates)
+                    await db.commit()
+                    logger.info(f"✅ JSON Migration: Added 'points: 0' to {len(updates)} old users.")
+                else:
+                    logger.info("✅ JSON Migration: All users already have points.")
 
     async def close(self):
         """Заглушка, чтобы соответствовать интерфейсу Aiogram Storage."""
@@ -72,6 +107,9 @@ class Database:
                 for user_id_str, user_data in data.items():
                     try:
                         uid = int(user_id_str)
+                        # При миграции из старого JSON тоже добавим points, если их нет
+                        if "points" not in user_data:
+                            user_data["points"] = 0
                         users_to_insert.append((uid, json.dumps(user_data, ensure_ascii=False)))
                     except ValueError:
                         continue
@@ -159,6 +197,7 @@ class Database:
             "language": language,
             "timezone": timezone,
             "active": active,
+            "points": 0,  # ✅ ДОБАВЛЕНО: Теперь у всех новых будет 0 баллов
             "demo_count": 0,
             "demo_expiration": None,
             "challenge_streak": 0,
