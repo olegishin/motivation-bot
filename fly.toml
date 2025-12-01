@@ -1,38 +1,38 @@
-app = "fotinia-final" 
-primary_region = "fra" 
+app = 'fotinia-final' 
+primary_region = 'fra' 
  
 [build] 
-  dockerfile = "Dockerfile" 
+  dockerfile = 'Dockerfile' 
  
 [env] 
-  DATA_DIR = "/app/data" 
-  PORT = "8080" 
-  PYTHONUNBUFFERED = "1" 
+  DATA_DIR = '/app/data' 
+  PORT = '8080' 
+  PYTHONUNBUFFERED = '1' 
  
 [processes] 
-  web = "uvicorn bot.main:app --host 0.0.0.0 --port 8080" 
+  web = 'uvicorn bot.main:app --host 0.0.0.0 --port 8080' 
  
 [[mounts]] 
-  source = "fotinia_data" 
-  destination = "/app/data" 
+  source = 'fotinia_data' 
+  destination = '/app/data' 
  
 [http_service] 
   internal_port = 8080 
   force_https = true 
-  auto_stop_machines = "off" 
+  auto_stop_machines = 'off' 
   auto_start_machines = false 
   min_machines_running =  
-  processes = ["web"] 
+  processes = ['web'] 
  
   [[http_service.checks]] 
-    interval = "15s" 
-    timeout = "2s" 
-    grace_period = "5s" 
-    method = "GET" 
-    path = "/" 
-    protocol = "http" 
+    interval = '15s' 
+    timeout = '2s' 
+    grace_period = '5s' 
+    method = 'GET' 
+    path = '/' 
+    protocol = 'http' 
  
 [[vm]] 
-  memory = "512mb" 
-  cpu_kind = "shared" 
+  memory = '512mb' 
+  cpu_kind = 'shared' 
   cpus = 
