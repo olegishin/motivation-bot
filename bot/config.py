@@ -6,7 +6,7 @@ import logging
 import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from typing import Set
+from typing import Set, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import pyotp  # ✅ ДОБАВЛЕНО для проверки TOTP в рантайме
 import jwt  # ✅ ДОБАВЛЕНО для проверки JWT в рантайме
@@ -86,7 +86,7 @@ class Settings(BaseSettings):
 try:
     settings = Settings()
     # ✅ Проверка, что 2FA секрет используется (это не требуется для работы, но полезно для логирования)
-    is_2fa_enabled = settings.ADMIN_2FA_SECRET != "JBSWY3DPEHPK3PXP" 
+    is_2fa_enabled = settings.ADMIN_2FA_SECRET != "JBSWY3DPEHPK3PXP"  
 
 except Exception as e:
     logger.critical(f"❌ НЕ УДАЛОСЬ ЗАГРУЗИТЬ .env И КОНФИГ: {e}")
@@ -103,6 +103,14 @@ FILE_MAPPING = {
     "evening_phrases": "fotinia_evening_phrases.json",
     "challenges": "challenges.json"
 }
+
+# 🔥 ДОБАВЛЕНО: Ключи рассылки, используемые планировщиком
+DEFAULT_BROADCAST_KEYS: List[str] = [
+    "morning_phrases", 
+    "goals", 
+    "day_phrases", 
+    "evening_phrases"
+]
 
 # --- Производные константы ---
 DEFAULT_TZ = ZoneInfo(settings.DEFAULT_TZ_KEY)

@@ -1,182 +1,132 @@
-# 05 - bot/utils.py
-# Утилиты и Middleware
+# 06 - bot/utils.py
+# Утилиты и хелперы
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from typing import Dict, Any, Callable, Awaitable, Optional
-from aiogram import BaseMiddleware, Bot
-from aiogram.types import Message, CallbackQuery, Update
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
+from typing import Dict, Any, Literal
 
-# ✅ ИСПРАВЛЕНО: Импорты с префиксом bot.
-from bot.config import logger, settings, DEFAULT_TZ, SPECIAL_USER_IDS
+from aiogram import Bot
+from aiogram.types import Message, ReplyKeyboardMarkup, InlineKeyboardMarkup
+from aiogram.exceptions import TelegramAPIError
+
+from bot.config import logger, settings, SPECIAL_USER_IDS
 from bot.localization import t, Lang
-from bot.database import db
+from bot.keyboards import get_payment_keyboard, get_cooldown_keyboard
 
-# =====================================================
-# 1. Вспомогательные функции
-# =====================================================
+# --- Константы ---
+# 24 часа для проверки демо-периода
+DEMO_COOLDOWN_HOURS = 24
+# Количество циклов демо-периода
+MAX_DEMO_CYCLES = 2
+# Длительность одного демо-периода (в днях)
+DEMO_DURATION_DAYS = 5
+# Тестовый ID для API оплаты
+TEST_USER_IDS = settings.TESTER_USER_IDS
 
-def is_admin(chat_id: int) -> bool:
-    return chat_id == settings.ADMIN_CHAT_ID
+# --- Функции ---
 
-def is_demo_expired(user_data: dict) -> bool:
-    if not user_data: return True
-    if user_data.get("is_paid"): return False
-    demo_exp = user_data.get("demo_expiration")
-    if not demo_exp: return True 
+def get_user_tz(user_data: Dict[str, Any]) -> ZoneInfo:
+    """Возвращает часовой пояс пользователя или дефолтный."""
+    tz_key = user_data.get("timezone", settings.DEFAULT_TZ_KEY)
     try:
-        expiration_dt = datetime.fromisoformat(demo_exp).replace(tzinfo=ZoneInfo("UTC"))
-        return datetime.now(ZoneInfo("UTC")) > expiration_dt
-    except (ValueError, TypeError):
-        return True
-
-def get_user_lang(user_data: dict) -> Lang:
-    lang_code = user_data.get("language", settings.DEFAULT_LANG)
-    if lang_code not in ("ru", "ua", "en"):
-        return settings.DEFAULT_LANG
-    return lang_code # type: ignore
-
-def get_user_tz(user_data: dict) -> ZoneInfo:
-    user_tz_key = user_data.get("timezone", settings.DEFAULT_TZ_KEY)
-    try:
-        return ZoneInfo(user_tz_key)
+        return ZoneInfo(tz_key)
     except ZoneInfoNotFoundError:
-        return DEFAULT_TZ 
+        return ZoneInfo(settings.DEFAULT_TZ_KEY)
 
-def get_tz_from_lang(lang_code: str | None) -> str:
-    if not lang_code: return settings.DEFAULT_TZ_KEY
-    lang_code = lang_code.lower()
-    if lang_code.startswith('ru'): return "Europe/Moscow"
-    if lang_code.startswith('ua'): return "Europe/Kiev"
-    return settings.DEFAULT_TZ_KEY
+def get_user_lang(user_data: Dict[str, Any]) -> Lang:
+    """Возвращает язык пользователя или дефолтный."""
+    return user_data.get("language", settings.DEFAULT_LANG)
 
-# --- Хелперы для ролей ---
-def get_demo_days(chat_id: int) -> int:
-    if chat_id in settings.SIMULATOR_USER_IDS: return 2
-    if chat_id in settings.TESTER_USER_IDS: return settings.TESTER_DEMO_DAYS
-    return settings.REGULAR_DEMO_DAYS
+def get_max_demo_cycles() -> int:
+    """Возвращает максимальное количество демо-циклов."""
+    return MAX_DEMO_CYCLES
 
-def get_cooldown_days(chat_id: int) -> int:
-    if chat_id in settings.SIMULATOR_USER_IDS: return 1
-    if chat_id in settings.TESTER_USER_IDS: return settings.TESTER_COOLDOWN_DAYS
-    return settings.REGULAR_COOLDOWN_DAYS
+def get_cooldown_days() -> float:
+    """Возвращает длительность кулдауна в днях."""
+    return DEMO_COOLDOWN_HOURS / 24
 
-def get_max_demo_cycles(chat_id: int) -> int:
-    if chat_id in settings.SIMULATOR_USER_IDS: return 2
-    if chat_id in settings.TESTER_USER_IDS: return 999
-    return settings.MAX_DEMO_CYCLES
+# 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Приведение типов для безопасного сравнения
+def is_admin(chat_id: int) -> bool:
+    """Проверяет, является ли пользователь администратором."""
+    return str(chat_id) == str(settings.ADMIN_CHAT_ID)
 
-# =====================================================
-# 2. Безопасная отправка
-# =====================================================
+def is_tester(chat_id: int) -> bool:
+    """Проверяет, является ли пользователь тестером."""
+    # Также проверяем на приведение типов
+    return str(chat_id) in [str(uid) for uid in TEST_USER_IDS]
 
-async def safe_send(bot: Bot, chat_id: int, text: str, **kwargs) -> bool:
-    try:
-        if "parse_mode" not in kwargs:
-            kwargs["parse_mode"] = "HTML"
-        await bot.send_message(chat_id=chat_id, text=text, **kwargs)
-        return True
-    except TelegramForbiddenError:
-        logger.warning(f"Bot blocked by {chat_id}.")
-        await db.update_user(chat_id, active=False) 
-    except TelegramRetryAfter as e:
-        await asyncio.sleep(e.retry_after)
-        return await safe_send(bot, chat_id, text, **kwargs)
-    except Exception as e:
-        logger.error(f"Error sending to {chat_id}: {e}")
-    return False
-
-
-# =====================================================
-# 3. Middleware
-# =====================================================
-
-class AccessMiddleware(BaseMiddleware):
-    async def __call__(
-        self,
-        handler: Callable[[Update, Dict[str, Any]], Awaitable[Any]],
-        event: Update,
-        data: Dict[str, Any]
-    ) -> Any:
+def is_demo_expired(user_data: Dict[str, Any]) -> Literal[False, "cooldown", "final"]:
+    """Проверяет статус демо-доступа."""
+    
+    # 1. Если оплачено, демо не истекло
+    if user_data.get("is_paid"):
+        return False
         
-        user = None
-        message = None
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    
+    # 2. Если достигнут лимит циклов, это 'final'
+    demo_count = user_data.get("demo_count", 0)
+    if demo_count >= MAX_DEMO_CYCLES:
+        return "final"
         
-        if event.message:
-            user = event.message.from_user
-            message = event.message
-        elif event.callback_query:
-            user = event.callback_query.from_user
-            message = event.callback_query.message
+    # 3. Если есть дата истечения и она в будущем, демо активно
+    exp_str = user_data.get("demo_expiration")
+    if exp_str:
+        try:
+            exp_dt = datetime.fromisoformat(exp_str).replace(tzinfo=ZoneInfo("UTC"))
+            if exp_dt > now_utc:
+                return False
+        except Exception:
+            pass # Если формат даты неверный, переходим к кулдауну
 
-        if not user:
-            return await handler(event, data)
-
-        chat_id = user.id
-        
-        # 1. Достаем свежие данные из БД
-        user_data = await db.get_user(chat_id)
-        is_new_user = not bool(user_data)
-        
-        # 2. Если юзера нет в БД — создаем на лету (Чтобы кнопки работали у старых юзеров и админа)
-        if is_new_user:
-            lang_code = user.language_code if user.language_code in ["ru", "ua", "en"] else "ru"
-            await db.add_user(
-                user_id=chat_id,
-                username=user.username,
-                full_name=user.first_name, 
-                language=lang_code,
-                timezone=get_tz_from_lang(lang_code)
-            )
-            user_data = await db.get_user(chat_id)
-
-        # 3. 🔥 Обновляем глобальный кэш (чтобы админ видел актуальную стату сразу)
-        if "users_db" in data:
-            data["users_db"][str(chat_id)] = user_data
-
-        lang = get_user_lang(user_data)
-        is_admin_flag = is_admin(chat_id)
-
-        data.update({
-            "user_data": user_data,
-            "lang": lang,
-            "is_admin": is_admin_flag,
-            "is_new_user": is_new_user
-        })
-
-        # 4. Логика проверки доступа (Demo / Paid)
-        if message and hasattr(message, 'text') and message.text:
-            text = message.text
-
-            # Если забанен
-            if user_data.get("active") is False and not is_admin_flag:
-                return
-
-            # Админы, тестеры и платные проходят всегда
-            if is_admin_flag or chat_id in SPECIAL_USER_IDS or user_data.get("is_paid", False):
-                return await handler(event, data)
-
-            allowed_cmds = ("/start", "/language", "/timezone", "/cancel", "/pay")
-            allowed_btns = (
-                t('btn_pay_premium', lang),
-                t('btn_pay_api_test_premium', lang),
-                t('btn_want_demo', lang),
-                t('cmd_cancel', lang)
-            )
-
-            if any(text.startswith(cmd) for cmd in allowed_cmds) or text in allowed_btns:
-                return await handler(event, data)
-
-            if not is_demo_expired(user_data):
-                return await handler(event, data)
-
-            logger.info(f"Access denied for {chat_id} — demo expired")
+    # 4. Проверяем кулдаун
+    last_demo_end_str = user_data.get("last_demo_end")
+    if last_demo_end_str:
+        try:
+            last_demo_end_dt = datetime.fromisoformat(last_demo_end_str).replace(tzinfo=ZoneInfo("UTC"))
+            cooldown_end_dt = last_demo_end_dt + timedelta(hours=DEMO_COOLDOWN_HOURS)
             
-            # ✅ ИСПРАВЛЕНО: Импорт ВНУТРИ функции, чтобы избежать циклической зависимости
-            from bot.content_handlers import handle_expired_demo
-            await handle_expired_demo(message, user_data, lang)
-            return
+            if cooldown_end_dt > now_utc:
+                # В режиме кулдауна
+                return "cooldown"
+        except Exception:
+            pass
+            
+    # 5. Если нет активного демо, нет кулдауна, но есть циклы < MAX_CYCLES, то демо истекло и доступно для активации
+    return False # Если демо закончилось, но кулдауна нет, оно доступно для активации
 
-        return await handler(event, data)
+
+async def safe_send(
+    bot: Bot, 
+    chat_id: int, 
+    text: str, 
+    reply_markup: ReplyKeyboardMarkup | InlineKeyboardMarkup | None = None,
+    parse_mode: str = "HTML"
+) -> bool:
+    """Безопасная отправка сообщения с обработкой блокировки."""
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+        return True
+    except TelegramAPIError as e:
+        # 403 Forbidden: Бот заблокирован пользователем
+        if 'bot was blocked by the user' in str(e) or 'user is deactivated' in str(e):
+            from bot.database import db # Ленивый импорт для избежания циклической зависимости
+            await db.update_user(chat_id, active=False)
+            logger.warning(f"User {chat_id} blocked the bot (auto-set active=False).")
+            return False
+        elif 'chat not found' in str(e) or 'user not found' in str(e):
+            logger.error(f"Chat/User {chat_id} not found: {e}")
+            return False
+        else:
+            logger.error(f"Telegram API Error sending to {chat_id}: {e}")
+            return False
+    except Exception as e:
+        logger.error(f"Unknown error sending to {chat_id}: {e}")
+        return False

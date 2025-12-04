@@ -37,7 +37,6 @@ def _is_user_active_for_broadcast(chat_id: int, user_data: dict) -> bool:
     if user_data.get("status") == "awaiting_renewal": return False
     return False
 
-# ✅ ТЕПЕРЬ САМ ЗАГРУЖАЕТ СВЕЖИЕ ДАННЫЕ
 async def centralized_broadcast_job(bot: Bot, static_data: dict):
     # Загружаем свежую БД прямо перед рассылкой
     users_db = await db.get_all_users()
@@ -89,7 +88,58 @@ async def centralized_broadcast_job(bot: Bot, static_data: dict):
         if sent_count > 0:
             logger.info(f"Broadcast done. Sent {sent_count} messages.")
 
-# ✅ ТЕПЕРЬ САМ ЗАГРУЖАЕТ СВЕЖИЕ ДАННЫЕ
+# 🔥 ИСПРАВЛЕНО: Обновлены заголовки для тестовой рассылки
+async def test_broadcast_job(bot: Bot, static_data: dict, chat_id: int):
+    """
+    Отправляет 4 тестовых сообщения админу, чтобы проверить работу рассылки.
+    Использует ту же логику выбора контента.
+    """
+    logger.info(f"Running test_broadcast_job for ADMIN: {chat_id}")
+
+    # 🔥 ИСПРАВЛЕНО: Более понятные заголовки для теста, как вы просили
+    schedules = [
+        ("morning_phrases", "Утро, 8:00"),
+        ("goals", "День, 12:00 (Цели)"),
+        ("day_phrases", "День, 15:00"),
+        ("evening_phrases", "Вечер, 18:00"),
+    ]
+    
+    user_data = await db.get_user(chat_id)
+    if not user_data:
+        await safe_send(bot, chat_id, "⚠️ Ошибка: Ваши данные не найдены в базе. Пожалуйста, введите /start.")
+        return
+
+    user_lang = get_user_lang(user_data)
+    user_name = user_data.get("name", "друг")
+    tasks = []
+
+    for key, title_suffix in schedules: # title_suffix = Утро, 8:00 и т.д.
+        data = static_data.get(key, {})
+        phrases_by_lang = data.get(user_lang, data.get(DEFAULT_LANG, []))
+        
+        if not phrases_by_lang: continue
+
+        phrase_raw = safe_choice(phrases_by_lang)
+        if not phrase_raw: continue
+        
+        phrase = (phrase_raw or "").format(name=user_name)
+        
+        # 🔥 ИСПРАВЛЕНО: Форматирование сообщения: "🧪 Тест рассылки: Утро, 8:00"
+        full_message = f"🧪 <b>Тест рассылки:</b> {title_suffix}\n\n{phrase}"
+
+        reaction_keyboard = get_broadcast_keyboard(
+            user_lang, 
+            quote_text=phrase, 
+            category=key, 
+            user_name=user_name
+        )
+        tasks.append(safe_send(bot, chat_id, full_message, reply_markup=reaction_keyboard))
+        
+    if tasks:
+        await asyncio.gather(*tasks)
+        logger.info(f"Test broadcast done. Sent {len(tasks)} messages to admin.")
+
+
 async def check_demo_expiry_job(bot: Bot):
     users_db = await db.get_all_users()
     logger.debug("Running check_demo_expiry_job (fresh fetch)...")

@@ -5,9 +5,9 @@ import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from aiogram import Router, Bot
-from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, BufferedInputFile
+from aiogram import Router, Bot, F
+from aiogram.filters import Command, CommandStart, ChatMemberUpdatedFilter, KICKED, MEMBER
+from aiogram.types import Message, BufferedInputFile, ChatMemberUpdated
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -16,16 +16,41 @@ from bot.config import logger, settings, SPECIAL_USER_IDS
 from bot.localization import t, Lang
 from bot.database import db
 from bot.keyboards import get_lang_keyboard, get_reply_keyboard_for_user
-from bot.content_handlers import handle_start_command, send_payment_instructions
+from bot.content_handlers import handle_start_command, send_payment_instructions, notify_admins
 from bot.utils import safe_send, get_user_lang, is_demo_expired
-from bot.scheduler import setup_jobs_and_cache
+# 🔥 ИСПРАВЛЕНО: Импортируем test_broadcast_job, а не centralized_broadcast_job
+from bot.scheduler import setup_jobs_and_cache, test_broadcast_job
 from bot.user_loader import load_static_data
 
 router = Router()
 
 class TimezoneStates(StatesGroup):
     awaiting_timezone = State()
+
+# --- 🔥 ОТСЛЕЖИВАНИЕ БЛОКИРОВКИ БОТА ---
+
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=KICKED))
+async def user_blocked_bot(event: ChatMemberUpdated, bot: Bot):
+    """Пользователь заблокировал бота (нажал 'Остановить и блокировать')."""
+    user_id = event.chat.id
+    name = event.from_user.first_name
     
+    # Помечаем в базе как неактивного
+    await db.update_user(user_id, active=False)
+    
+    logger.info(f"⛔ User {user_id} blocked the bot.")
+    
+    # Уведомляем админа
+    await notify_admins(bot, f"⛔ <b>Пользователь заблокировал бота:</b>\n👤 {name} (ID: <code>{user_id}</code>)")
+
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=MEMBER))
+async def user_unblocked_bot(event: ChatMemberUpdated, bot: Bot):
+    """Пользователь разблокировал бота."""
+    user_id = event.chat.id
+    # Помечаем как активного
+    await db.update_user(user_id, active=True)
+    logger.info(f"✅ User {user_id} unblocked the bot.")
+
 # --- START & PAY ---
 
 @router.message(CommandStart())
@@ -93,6 +118,24 @@ async def cancel_command(message: Message, state: FSMContext, user_data: dict, l
 
 # --- ADMIN COMMANDS ---
 
+# 🔥 НОВАЯ КОМАНДА: ТЕСТ РАССЫЛКИ
+@router.message(Command("broadcast_test"))
+async def broadcast_test_command(message: Message, bot: Bot, static_data: dict, is_admin: bool):
+    """
+    Тестовая рассылка, которая отправляет 4 сообщения только админу.
+    """
+    if not is_admin: 
+        return await message.answer(t('unknown_command', get_user_lang({"language": settings.DEFAULT_LANG})))
+    
+    await message.answer("🧪 <b>Запуск тестовой рассылки...</b>", parse_mode="HTML")
+    
+    # 🔥 ИСПРАВЛЕНИЕ: Вызываем test_broadcast_job, которая отправляет сообщения только на ID администратора
+    await test_broadcast_job(bot, static_data, message.from_user.id)
+    
+    await message.answer("✅ <b>Тестовая рассылка завершена.</b> Проверьте личные сообщения.", parse_mode="HTML")
+    logger.info(f"Admin {message.from_user.id} triggered /broadcast_test.")
+
+
 @router.message(Command("grant"))
 async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bool, lang: Lang):
     if not is_admin: return
@@ -115,23 +158,18 @@ async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bo
     await safe_send(bot, target_id_int, t('user_grant_notification', target_lang))
     logger.info(f"Admin {message.from_user.id} granted Premium to {target_id_str}")
 
-# ✅ НОВАЯ КОМАНДА: ПОЛНОЕ УДАЛЕНИЕ ЮЗЕРА
 @router.message(Command("wipe"))
 async def wipe_user_command(message: Message, users_db: dict, is_admin: bool):
     if not is_admin: return
 
     try:
-        # Получаем ID из сообщения: /wipe 123456789
         target_id_str = message.text.split()[1]
         target_id = int(target_id_str)
     except (IndexError, ValueError):
         await message.answer("⚠️ Формат: <code>/wipe ID_ПОЛЬЗОВАТЕЛЯ</code>", parse_mode="HTML")
         return
 
-    # 1. Удаляем из БД
     await db.delete_user(target_id)
-
-    # 2. Удаляем из кэша памяти (чтобы бот сразу "забыл" его)
     if target_id_str in users_db:
         users_db.pop(target_id_str)
 
@@ -178,8 +216,6 @@ async def stats_command(message: Message, users_db: dict, is_admin: bool, lang: 
 async def show_users_command(message: Message, users_db: dict, is_admin: bool):
     if not is_admin: return
     
-    # Генерируем JSON из текущего кэша (или БД)
-    # Это лучше, чем отправлять старый users.json с диска
     data_str = json.dumps(users_db, default=str, indent=2, ensure_ascii=False)
     file = BufferedInputFile(data_str.encode("utf-8"), filename="users.json")
     

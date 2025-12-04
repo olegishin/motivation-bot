@@ -18,7 +18,7 @@ from bot.content_handlers import (
 )
 from bot.challenges import send_new_challenge_message
 from bot.utils import get_user_tz
-from bot.commands import send_stats_report, show_users_command 
+from bot.commands import send_stats_report, show_users_command, broadcast_test_command # 🔥 ИМПОРТ: broadcast_test_command
 from bot.scheduler import setup_jobs_and_cache
 from bot.user_loader import load_static_data
 
@@ -121,6 +121,13 @@ async def handle_show_users_button(message: Message, users_db: dict, is_admin: b
     if not is_admin: return
     # ✅ ИСПРАВЛЕНО: Передаем users_db
     await show_users_command(message, users_db, is_admin)
+
+# 🔥 НОВЫЙ ХЭНДЛЕР ДЛЯ КНОПКИ "ТЕСТ РАССЫЛКИ"
+@router.message(F.text.in_([t('btn_test_broadcast', 'ru'), t('btn_test_broadcast', 'ua'), t('btn_test_broadcast', 'en')]))
+async def handle_test_broadcast_button(message: Message, bot: Bot, static_data: dict, is_admin: bool):
+    """Вызывает команду /broadcast_test по нажатию кнопки."""
+    # Используем существующий command handler для выполнения логики
+    await broadcast_test_command(message, bot, static_data, is_admin)
 
 @router.message(F.text)
 async def handle_unknown_text(message: Message, lang: Lang, user_data: dict):

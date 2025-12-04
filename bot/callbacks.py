@@ -1,8 +1,8 @@
-# 10 - bot/callbacks.py
+# 16 - bot/callbacks.py
 # Обработчики Inline-кнопок Aiogram (Язык, Реакции, Челленджи)
 
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -25,15 +25,14 @@ async def handle_lang_select(
     static_data: dict, 
     user_data: dict, 
     is_new_user: bool, 
-    **kwargs # 🔥 ВАЖНО: спасает от ошибки "missing argument data"
+    **kwargs 
 ):
     if not query.message: 
         await query.answer("Ошибка: сообщение не найдено.")
         return
         
-    # data имеет формат set_lang_ru
     parts = query.data.split("_")
-    lang_code = parts[-1] # берем последний элемент
+    lang_code = parts[-1] 
     
     if lang_code not in ("ru", "ua", "en"): 
         return
@@ -67,16 +66,30 @@ async def handle_lang_select(
 async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang, **kwargs):
     """
     Обработка лайков/дизлайков с ОТВЕТОМ (Reply) вместо всплывашки.
+    Сохраняет кнопку 'Поделиться'.
     """
     user_name = user_data.get("name", "друг")
     parts = query.data.split(":")
     action = parts[1] # like или dislike
     
+    # 0. Ищем URL и текст кнопки 'Поделиться'
+    share_url = None
+    share_text = t('btn_share', lang) 
+    
+    if query.message.reply_markup and query.message.reply_markup.inline_keyboard:
+        # Проходим по всем рядам, чтобы найти кнопку с URL и текстом "Поделиться"
+        for row in query.message.reply_markup.inline_keyboard:
+            for button in row:
+                if button.url and button.text == share_text: 
+                    share_url = button.url
+                    break
+            if share_url: break
+
     # 1. Проверка на повторное нажатие (если уже есть суффикс :done)
     if len(parts) > 2 and parts[2] == "done":
         # ✅ ОТВЕТ СООБЩЕНИЕМ: "Оценка уже принята"
         await query.message.reply(t('reaction_already_accepted', lang, name=user_name))
-        await query.answer() # Тихо закрываем часики
+        await query.answer() 
         return
 
     # 2. Обновляем статистику в БД
@@ -93,21 +106,25 @@ async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang, **k
     user_data["stats_dislikes"] = new_dislikes
     
     # 3. ✅ ОТВЕТ СООБЩЕНИЕМ: "Благодарю за оценку"
-    # Используем reply, чтобы было видно, к какому сообщению относится
     await query.message.reply(t('reaction_received', lang, name=user_name))
-    await query.answer() # Тихо закрываем часики
+    await query.answer() 
 
-    # 4. Визуально блокируем кнопки (ставим галочку и УБИРАЕМ "Поделиться")
+    # 4. Визуально блокируем кнопки (ставим галочку и СОХРАНЯЕМ "Поделиться")
     try:
         kb = InlineKeyboardBuilder()
         # Ставим галочку на выбранном варианте
         l_text = "👍 ✅" if action == "like" else "👍"
         d_text = "👎 ✅" if action == "dislike" else "👎"
         
-        # Оба варианта теперь ведут на :done
+        # 1 ряд: Лайки
         kb.button(text=l_text, callback_data="reaction:like:done")
         kb.button(text=d_text, callback_data="reaction:dislike:done")
-        kb.adjust(2)
+        kb.adjust(2) 
+        
+        # 2 ряд: Кнопка Поделиться (если нашли URL)
+        if share_url:
+            # Добавляем кнопку с URL в новый ряд
+            kb.row(InlineKeyboardButton(text=share_text, url=share_url))
         
         # Обновляем клавиатуру у сообщения
         await query.message.edit_reply_markup(reply_markup=kb.as_markup())

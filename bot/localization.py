@@ -100,10 +100,10 @@ translations: Dict[Lang, Dict[str, str]] = {
         "btn_want_demo": "🔄 Хочу демо",
         "btn_challenge_accept": "✅ Принять", "btn_challenge_new": "🎲 Новый",
         "btn_challenge_complete": "✅ Выполнено",
-        
-        # ✅ ДОБАВЛЕНО ДЛЯ НАСТРОЕК
         "btn_settings": "⚙️ Настройки",
         "btn_back": "↩️ Назад",
+        "btn_test_broadcast": "🧪 Тест рассылки", # 🔥 НОВАЯ КНОПКА
+        
         "msg_choose_action": "Выберите язык:", 
         "msg_welcome_back": "🏠 Вы вернулись в главное меню",
 
@@ -137,8 +137,6 @@ translations: Dict[Lang, Dict[str, str]] = {
         "user_grant_notification": "🎉 <b>Доступ активовано!</b>\n\nАдміністратор активував ваш Premium-доступ. Вітаємо!\n\nНатисніть /start, щоб оновити клавіатуру.",
         
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ закінчується менш ніж за {hours} год. Не забудьте активувати підписку, щоб не втрачати прогрес!",
-        
-        # ✅ ИСПРАВЛЕН ПЕРЕВОД (Было на русском)
         "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nДо відновлення демо-періоду залишилося **{hours} год {minutes} хв.**\n\nАбо ви можете активувати Premium-доступ прямо зараз, натиснувши кнопку '👑 Хочу Premium'. 👇",
         
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати **ще один** пробний період ({demo_days} дні) або отримати постійний Premium-доступ.",
@@ -204,9 +202,10 @@ translations: Dict[Lang, Dict[str, str]] = {
         "btn_want_demo": "🔄 Хочу демо",
         "btn_challenge_accept": "✅ Прийняти", "btn_challenge_new": "🎲 Новий",
         "btn_challenge_complete": "✅ Виконано",
-        
         "btn_settings": "⚙️ Налаштування",
         "btn_back": "↩️ Назад",
+        "btn_test_broadcast": "🧪 Тест розсилки", # 🔥 НОВАЯ КНОПКА
+        
         "msg_choose_action": "Оберіть мову:", 
         "msg_welcome_back": "🏠 Ви повернулися в головне меню",
 
@@ -307,10 +306,12 @@ translations: Dict[Lang, Dict[str, str]] = {
 
         "btn_settings": "⚙️ Settings",
         "btn_back": "↩️ Back",
+        "btn_test_broadcast": "🧪 Test Broadcast", # 🔥 НОВАЯ КНОПКА
+
         "msg_choose_action": "Select language:", 
         "msg_welcome_back": "🏠 You are back in the main menu",
 
-        "title_motivation": "💪", "title_rhythm": "🎶 Rhythm of theDay:", "title_rules": "📜 Rules of the Universe",
+        "title_motivation": "💪", "title_rhythm": "🎶 Rhythm of the Day:", "title_rules": "📜 Rules of the Universe",
         "title_rules_daily": "📜 <b>{title} ({count}/{limit}):</b>",
         "rules_limit_reached": "That's all the laws for today. You will learn new ones tomorrow! 🌙",
         "profile_status_total": "Total",

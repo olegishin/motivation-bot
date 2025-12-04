@@ -49,16 +49,21 @@ def get_admin_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
         KeyboardButton(text=t('btn_challenge', lang)), 
         KeyboardButton(text=t('btn_rules', lang))
     )
+    # 3 ряд: Настройки, Статистика, Юзеры
     builder.row(
         KeyboardButton(text=t('btn_settings', lang)),
         KeyboardButton(text=t('btn_stats', lang)),
-        # ✅ Кнопка "Юзеры" (Показать users.json)
         KeyboardButton(text=t('btn_show_users', lang)) 
     )
-    builder.row(KeyboardButton(text=t('btn_profile', lang)))
+    # 🔥 НОВЫЙ РЯД: Обновить, Тест рассылки, Профиль
+    builder.row(
+        KeyboardButton(text=t('btn_reload_data', lang)),
+        KeyboardButton(text=t('btn_test_broadcast', lang)), # 🔥 НОВАЯ КНОПКА
+        KeyboardButton(text=t('btn_profile', lang))
+    )
     
-    # Сетка кнопок: 2, 2, 3, 1
-    builder.adjust(2, 2, 3, 1) 
+    # Сетка кнопок: 2, 2, 3, 3
+    builder.adjust(2, 2, 3, 3) 
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -114,6 +119,11 @@ def get_reply_keyboard_for_user(chat_id: int, lang: Lang, user_data: Dict[str, A
         return get_main_keyboard(lang)
 
     # Логика демо оставлена как у тебя была
+    return get_main_keyboard(lang)
+
+
+# Для совместимости (если где-то еще вызывается)
+def get_main_menu_kb(lang: Lang) -> ReplyKeyboardMarkup:
     return get_main_keyboard(lang)
 
 
@@ -177,7 +187,3 @@ def get_broadcast_keyboard(lang: Lang, quote_text: str | None = None, category: 
         builder.adjust(2)
     
     return builder.as_markup()
-
-# Для совместимости (если где-то еще вызывается)
-def get_main_menu_kb(lang: Lang) -> ReplyKeyboardMarkup:
-    return get_main_keyboard(lang)
