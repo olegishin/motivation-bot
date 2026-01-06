@@ -1,3 +1,4 @@
+# 08 - bot/content_handlers.py
 import random
 import asyncio
 import json
@@ -22,10 +23,9 @@ async def notify_admins(bot: Bot, text: str):
     admin_id = settings.ADMIN_CHAT_ID 
     if admin_id:
         try:
-            await bot.send_message(admin_id, text, parse_mode="HTML")
+            await bot.send_message(admin_id, text, parse_mode=ParseMode.HTML)
         except Exception as e:
             logger.error(f"Failed to notify admin {admin_id}: {e}")
-            pass
 
 # --- ЛОГИКА СТАРТА ---
 async def handle_start_command(message: Message, static_data: dict, user_data: dict, lang: Lang, is_new_user: bool = False):
@@ -42,7 +42,7 @@ async def handle_start_command(message: Message, static_data: dict, user_data: d
 
         welcome_text = t('welcome', lang, name=name, demo_days=days) 
         kb = get_main_keyboard(lang, user_id=user_id)
-        await message.answer(welcome_text, reply_markup=kb, parse_mode="HTML")
+        await message.answer(welcome_text, reply_markup=kb, parse_mode=ParseMode.HTML)
         
         await notify_admins(bot, f"🆕 <b>Новый пользователь!</b>\n👤 {name} (ID: <code>{user_id}</code>)\n🌍 Язык: {lang}")
     else:
@@ -60,12 +60,12 @@ async def handle_start_command(message: Message, static_data: dict, user_data: d
         
         welcome_text = t('welcome_return', lang, name=name, status_text=status_text)
         kb = get_main_keyboard(lang, user_id=user_id)
-        await message.answer(welcome_text, reply_markup=kb, parse_mode="HTML")
+        await message.answer(welcome_text, reply_markup=kb, parse_mode=ParseMode.HTML)
         
         if user_id != settings.ADMIN_CHAT_ID: 
              await notify_admins(bot, f"👋 <b>Пользователь вернулся:</b>\n👤 {name} (ID: <code>{user_id}</code>)")
 
-# --- ОТПРАВКА ИЗ СПИСКА (Мотивация, Ритм) ---
+# --- ОТПРАВКА ИЗ СПИСКА ---
 async def send_from_list(message: Message, static_data: dict, user_data: dict, lang: Lang, list_key: str, title_key: str):
     content_data = static_data.get(list_key, {})
     if isinstance(content_data, dict):
@@ -85,9 +85,18 @@ async def send_from_list(message: Message, static_data: dict, user_data: dict, l
     except: pass
 
     kb = get_broadcast_keyboard(lang, quote_text=phrase, category=list_key, user_name=user_name)
-    await message.answer(phrase, reply_markup=kb, parse_mode="HTML")
+    await message.answer(phrase, reply_markup=kb, parse_mode=ParseMode.HTML)
 
-# --- ЛОГИКА ЛАЙКОВ (НОВОЕ) ---
+# --- ЛОГИКА РЕАКЦИЙ И ЧЕЛЛЕНДЖЕЙ ---
+
+async def handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang):
+    """Алиас для обработки реакций из колбэков."""
+    data = callback.data
+    if "like" in data:
+        await handle_like(callback, user_data, lang)
+    elif "dislike" in data:
+        await handle_dislike(callback, user_data, lang)
+
 async def handle_like(callback: CallbackQuery, user_data: dict, lang: Lang):
     likes = user_data.get("stats_likes", 0) + 1
     await db.update_user(callback.from_user.id, stats_likes=likes)
@@ -100,16 +109,26 @@ async def handle_dislike(callback: CallbackQuery, user_data: dict, lang: Lang):
     user_data["stats_dislikes"] = dislikes
     await callback.answer(t('msg_dislike_thanks', lang))
 
-# --- ЛОГИКА ЧЕЛЛЕНДЖЕЙ (НОВОЕ) ---
+async def handle_accept_challenge_idx(callback: CallbackQuery, user_data: dict, lang: Lang):
+    """Обработка принятия конкретного челленджа."""
+    await handle_accept_challenge(callback, user_data, lang)
+
 async def handle_accept_challenge(callback: CallbackQuery, user_data: dict, lang: Lang):
     user_id = callback.from_user.id
-    # Помечаем в базе, что челлендж принят
     await db.update_user(user_id, challenge_accepted=True)
     user_data["challenge_accepted"] = True
     
     await callback.answer(t('challenge_accepted_toast', lang))
-    await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопку
-    await callback.message.answer(t('challenge_accepted_msg', lang), parse_mode="HTML")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except: pass
+    await callback.message.answer(t('challenge_accepted_msg', lang), parse_mode=ParseMode.HTML)
+
+async def handle_new_challenge(callback: CallbackQuery, user_data: dict, lang: Lang):
+    """Запрос нового челленджа."""
+    # Логика может быть расширена, пока просто уведомляем
+    await callback.answer("Генерирую новый челлендж...")
+    # Здесь можно вызвать функцию отправки нового челленджа
 
 # --- ОТПРАВКА ПРАВИЛ ---
 async def send_rules(message: Message, static_data: dict, user_data: dict, lang: Lang):
@@ -136,7 +155,7 @@ async def send_rules(message: Message, static_data: dict, user_data: dict, lang:
         try: shown_indices = json.loads(shown_indices)
         except: shown_indices = []
 
-    available_indices = [i for i in range(len(rules_list)) if i not in shown_indices] or range(len(rules_list))
+    available_indices = [i for i in range(len(rules_list)) if i not in shown_indices] or list(range(len(rules_list)))
     idx = random.choice(available_indices)
     rule_text = rules_list[idx]
     
@@ -145,7 +164,7 @@ async def send_rules(message: Message, static_data: dict, user_data: dict, lang:
     
     header = t('title_rules_daily', lang, title=t('title_rules', lang), count=shown_count + 1, limit=settings.RULES_PER_DAY_LIMIT)
     kb = get_broadcast_keyboard(lang, quote_text=rule_text, category="rules")
-    await message.answer(f"{header}\n\n{rule_text}", reply_markup=kb, parse_mode="HTML")
+    await message.answer(f"{header}\n\n{rule_text}", reply_markup=kb, parse_mode=ParseMode.HTML)
 
 # --- ПРОФИЛЬ ---
 async def send_profile(message: Message, user_data: dict, lang: Lang):
@@ -170,7 +189,7 @@ async def send_profile(message: Message, user_data: dict, lang: Lang):
         f"👍 {t('profile_likes', lang)}: <b>{likes}</b>\n"
         f"👎 {t('profile_dislikes', lang)}: <b>{dislikes}</b>"
     )
-    await message.answer(text, parse_mode="HTML")
+    await message.answer(text, parse_mode=ParseMode.HTML)
 
 # --- ОПЛАТА И ДЕМО ---
 async def send_payment_instructions(message: Message, user_data: dict, lang: Lang):
