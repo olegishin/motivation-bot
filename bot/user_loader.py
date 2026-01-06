@@ -1,5 +1,5 @@
 # 06 - bot/user_loader.py
-# Загрузка данных и миграция
+# Загрузка данных и кэширование
 
 import asyncio
 import json
@@ -16,14 +16,25 @@ from bot.localization import DEFAULT_LANG
 
 # --- Адаптер для загрузки пользователей ---
 async def load_users_with_fix() -> Dict[str, Any]:
-    await db.connect()
-    await db.migrate_from_json(settings.USERS_FILE)
+    """
+    Загружает кэш пользователей из SQLite. 
+    Функция миграции из JSON закомментирована, так как база уже перенесена.
+    """
+    # await db.connect() # Соединение уже должно быть открыто в lifespan (main.py)
+    
+    # 🚑 ВНИМАНИЕ: Если ты уверен, что все юзеры в SQLite, убираем вызов migrate_from_json
+    # await db.migrate_from_json(settings.USERS_FILE) 
+    
     users = await db.get_all_users()
     logger.info(f"📖 Loaded {len(users)} users from SQLite (cache).")
     return users
 
 # --- Адаптер для сохранения ---
 def save_users_sync(users_db: Dict[str, Any]) -> None:
+    """
+    Делает экстренный снимок кэша в JSON файл (backup). 
+    Основная работа идет в SQLite.
+    """
     try:
         settings.DATA_DIR.mkdir(exist_ok=True, parents=True)
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=settings.DATA_DIR) as tmp:
@@ -34,14 +45,14 @@ def save_users_sync(users_db: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error(f"❌ Emergency save failed: {e}")
 
-# --- Загрузка статики ---
+# --- Загрузка статики (Челленджи, Правила и т.д.) ---
 async def load_static_data() -> dict:
     return await asyncio.to_thread(_load_static_data_sync)
 
 def _load_static_data_sync() -> dict:
     DATA_DIR = settings.DATA_DIR
     
-    # 1. Копируем файлы из data_initial (если есть)
+    # 1. Копируем файлы из data_initial (если есть новые)
     source_data_dir = settings.DATA_INITIAL_DIR
     if not source_data_dir.exists():
         logger.warning(f"⚠️ data_initial not found at {source_data_dir}")
@@ -58,7 +69,7 @@ def _load_static_data_sync() -> dict:
             logger.warning(f"⚠️ File not found: {path}")
             return None
         try:
-            # ✅ ИСПРАВЛЕНО: utf-8-sig читает файлы и с BOM (Windows Notepad) и без него
+            # ✅ utf-8-sig читает файлы с BOM и без
             with open(path, 'r', encoding='utf-8-sig') as f: 
                 return json.load(f)
         except json.JSONDecodeError as e:
@@ -69,7 +80,6 @@ def _load_static_data_sync() -> dict:
             return None
 
     # 2. Загружаем файлы по карте FILE_MAPPING
-    # В этой версии мы ожидаем, что каждый ключ рассылки сопоставлен с отдельным файлом.
     for key, filename in FILE_MAPPING.items():
         file_path = DATA_DIR / filename
         raw_data = load_json(file_path)
@@ -78,8 +88,6 @@ def _load_static_data_sync() -> dict:
             static_data[key] = {}
             continue
             
-        # УБРАН НЕНУЖНЫЙ БЛОК ДЛЯ 'phrases', так как в конфигурации все файлы разделены.
-
         # Специальный DEBUG для челленджей
         if key == "challenges":
              if isinstance(raw_data, list):
@@ -88,7 +96,7 @@ def _load_static_data_sync() -> dict:
                  count = sum(len(v) for v in raw_data.values())
                  logger.info(f"✅ Loaded {count} challenges (Dict format).")
         
-        # Авто-исправление структуры (Список -> Словарь)
+        # Авто-исправление структуры (Список -> Словарь с ключом языка)
         if isinstance(raw_data, list):
              static_data[key] = {DEFAULT_LANG: raw_data}
         elif isinstance(raw_data, dict):
@@ -96,10 +104,10 @@ def _load_static_data_sync() -> dict:
         else:
              static_data[key] = {}
 
-    # --- Финальная проверка, что ключи рассылки присутствуют ---
+    # --- Финальная проверка обязательных ключей ---
     for key in DEFAULT_BROADCAST_KEYS:
         if key not in static_data or not static_data.get(key):
-             logger.error(f"❌ CRITICAL: Broadcast key '{key}' missing or empty in static_data! Check file: {FILE_MAPPING.get(key, 'N/A')}")
+             logger.error(f"❌ CRITICAL: Broadcast key '{key}' missing or empty in static_data!")
              static_data[key] = {} 
 
     return static_data

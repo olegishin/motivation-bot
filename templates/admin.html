@@ -29,12 +29,12 @@
             <div class="col-md-3">
                 <div class="card text-white bg-primary mb-3">
                     <div class="card-body">
-                        <h5 class="card-title">Всего</h5>
+                        <h5 class="card-title">Всего пользователей</h5>
                         <p class="card-text fs-4">{{ total_users }}</p>
                     </div>
                 </div>
             </div>
-            </div>
+        </div>
 
         <div class="card">
             <div class="card-header bg-white py-3">
@@ -48,70 +48,79 @@
                                 <th>User</th>
                                 <th>Статус</th>
                                 <th>Демо истекает</th>
-                                <th>Активность</th>
+                                <th>Настройки</th>
                                 <th>Действия</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for uid, user in users.items() %}
+                            {% for user in users %}
                             <tr>
                                 <td>
                                     <div class="d-flex align-items-center">
                                         <div class="avatar me-2">{{ user.name[:1] }}</div>
                                         <div>
                                             <div class="fw-bold">{{ user.name }}</div>
-                                            <div class="text-muted small">ID: {{ uid }}</div>
-                                            <div class="text-muted small">{{ user.username }}</div>
+                                            <div class="text-muted small">ID: {{ user.id }}</div>
+                                            <div class="text-muted small">@{{ user.username }}</div>
                                         </div>
                                     </div>
                                 </td>
                                 <td>
                                     {% if user.is_paid %}
                                         <span class="badge bg-warning text-dark">Premium 👑</span>
-                                    {% elif not user.active %}
+                                    {% elif not user.is_active %}
                                         <span class="badge bg-danger">Banned ⛔</span>
+                                    {% elif user.status == "Expired" %}
+                                        <span class="badge bg-secondary">Expired ⌛</span>
                                     {% else %}
                                         <span class="badge bg-success">Demo 🆓</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if user.demo_expiration and not user.is_paid %}
-                                        {{ user.demo_expiration[:16].replace('T', ' ') }}
+                                    {% if user.expires_info %}
+                                        {{ user.expires_info }}
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <small class="d-block">Lang: {{ user.language }}</small>
-                                    <small class="d-block">TZ: {{ user.timezone }}</small>
+                                    <small class="d-block">Lang: {{ user.language.upper() }}</small>
+                                    <small class="d-block text-muted">TZ: {{ user.timezone }}</small>
                                 </td>
                                 <td>
                                     <div class="d-flex gap-2">
                                         {% if not user.is_paid %}
-                                        <form action="/admin/action" method="post" onsubmit="return confirm('Выдать Premium?');">
-                                            <input type="hidden" name="user_id" value="{{ uid }}">
+                                        <form action="/admin/action" method="post" onsubmit="return confirm('Выдать Premium этому пользователю?');">
+                                            <input type="hidden" name="user_id" value="{{ user.id }}">
                                             <input type="hidden" name="action" value="give_premium">
                                             <input type="hidden" name="secret_token" value="{{ admin_secret }}">
                                             <button type="submit" class="btn btn-sm btn-outline-warning" title="Выдать Premium">👑</button>
                                         </form>
                                         {% endif %}
 
-                                        <form action="/admin/action" method="post" onsubmit="return confirm('Сбросить демо (начать заново)?');">
-                                            <input type="hidden" name="user_id" value="{{ uid }}">
+                                        <form action="/admin/action" method="post" onsubmit="return confirm('Сбросить демо и начать заново?');">
+                                            <input type="hidden" name="user_id" value="{{ user.id }}">
                                             <input type="hidden" name="action" value="reset_demo">
                                             <input type="hidden" name="secret_token" value="{{ admin_secret }}">
                                             <button type="submit" class="btn btn-sm btn-outline-primary" title="Сбросить демо">🔄</button>
                                         </form>
 
                                         <form action="/admin/action" method="post">
-                                            <input type="hidden" name="user_id" value="{{ uid }}">
+                                            <input type="hidden" name="user_id" value="{{ user.id }}">
                                             <input type="hidden" name="action" value="toggle_ban">
                                             <input type="hidden" name="secret_token" value="{{ admin_secret }}">
-                                            {% if user.active %}
+                                            {% if user.is_active %}
                                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="Забанить">⛔</button>
                                             {% else %}
                                                 <button type="submit" class="btn btn-sm btn-outline-success" title="Разбанить">✅</button>
                                             {% endif %}
+                                        </form>
+
+                                        <form action="/admin/action" method="post" onsubmit="return confirm('УДАЛИТЬ ПОЛЬЗОВАТЕЛЯ НАВСЕГДА? Это действие необратимо.');">
+                                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                                            <input type="hidden" name="action" value="delete_user">
+                                            <input type="hidden" name="secret_token" value="{{ admin_secret }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-dark" title="Удалить">🗑️</button>
                                         </form>
                                     </div>
                                 </td>

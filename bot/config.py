@@ -8,8 +8,6 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Set, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import pyotp  # ✅ ДОБАВЛЕНО для проверки TOTP в рантайме
-import jwt  # ✅ ДОБАВЛЕНО для проверки JWT в рантайме
 
 # ----------------- КОНФИГУРАЦИЯ ЛОГОВ -----------------
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
@@ -19,7 +17,7 @@ handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)
 if not logger.hasHandlers():
     logger.addHandler(handler)
 logger.propagate = False
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # ----------------- КОНФИГУРАЦИЯ .ENV -----------------
 class Settings(BaseSettings):
@@ -32,17 +30,14 @@ class Settings(BaseSettings):
     DEFAULT_LANG: str = "ru"
     DEFAULT_TZ_KEY: str = "Europe/Kiev"
 
-    # === Админка (УСТАРЕВШЕЕ / Legacy, можно удалить после деплоя) ===
+    # === Админка ===
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "secret"
-    ADMIN_SECRET: str = "my_secret_token_123"
-
-    # === НОВАЯ БЕЗОПАСНАЯ АДМИНКА (JWT + 2FA) ===
-    # Секрет для подписи JWT-токенов (обязательно поменяй в .env!)
-    ADMIN_JWT_SECRET: str = "change-me-to-very-strong-random-string-2025"
-
-    # Секрет для 2FA (TOTP) — сгенерируй через: python -c "import pyotp; print(pyotp.random_base32())"
-    ADMIN_2FA_SECRET: str = "JBSWY3DPEHPK3PXP"  # ← заменить на свой!
+    
+    # Секреты (ОБЯЗАТЕЛЬНО должны быть в .env или Secrets)
+    ADMIN_PASSWORD: str
+    ADMIN_SECRET: str 
+    ADMIN_JWT_SECRET: str
+    ADMIN_2FA_SECRET: str
 
     # === Роли и тестеры ===
     TESTER_USER_IDS: Set[int] = {290711961, 6104624108}
@@ -60,6 +55,12 @@ class Settings(BaseSettings):
 
     # === Пути ===
     DATA_DIR: Path = Path(os.getenv("DATA_DIR", "data"))
+
+    # 🔥 НОВОЕ: Динамический BASE_URL для WebApp
+    @property
+    def BASE_URL(self) -> str:
+        """Базовый URL приложения без слеша в конце (для WebApp ссылок)."""
+        return self.WEBHOOK_URL.rstrip("/")
 
     @property
     def USERS_FILE(self) -> Path:
@@ -85,12 +86,9 @@ class Settings(BaseSettings):
 # ----------------- ЗАГРУЗКА -----------------
 try:
     settings = Settings()
-    # ✅ Проверка, что 2FA секрет используется (это не требуется для работы, но полезно для логирования)
-    is_2fa_enabled = settings.ADMIN_2FA_SECRET != "JBSWY3DPEHPK3PXP"  
-
 except Exception as e:
-    logger.critical(f"❌ НЕ УДАЛОСЬ ЗАГРУЗИТЬ .env И КОНФИГ: {e}")
-    sys.exit(f"Критическая ошибка: {e}")
+    logger.critical(f"❌ CONFIG ERROR: {e}")
+    sys.exit(f"Критическая ошибка конфига (проверьте .env): {e}")
 
 # --- Сопоставление файлов контента ---
 FILE_MAPPING = {
@@ -104,7 +102,7 @@ FILE_MAPPING = {
     "challenges": "challenges.json"
 }
 
-# 🔥 ДОБАВЛЕНО: Ключи рассылки, используемые планировщиком
+# Ключи рассылки, используемые планировщиком
 DEFAULT_BROADCAST_KEYS: List[str] = [
     "morning_phrases", 
     "goals", 
@@ -118,7 +116,6 @@ SPECIAL_USER_IDS = settings.TESTER_USER_IDS.union(settings.SIMULATOR_USER_IDS).u
 
 # Логирование при старте
 logger.info("🤖 Bot config loaded...")
+logger.info(f"🔗 BASE_URL: {settings.BASE_URL}")
 logger.info(f"🔑 ADMIN_CHAT_ID: {settings.ADMIN_CHAT_ID}")
-logger.info(f"🧪 TESTER_USER_IDS: {settings.TESTER_USER_IDS}")
 logger.info(f"📂 DATA_DIR: {settings.DATA_DIR}")
-logger.info(f"🛡️ 2FA enabled: {'YES' if is_2fa_enabled else 'NO (default secret!)'}")

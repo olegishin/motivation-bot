@@ -1,30 +1,17 @@
-app = 'fotinia-final'
+# fly.toml — финальная рабочая версия (декабрь 2025)
+app = 'fotinia-final-floral-sky-143'
 primary_region = 'fra'
 
 [build]
   dockerfile = 'Dockerfile'
 
 [env]
-  # 🔥 КРИТИЧЕСКИ ВАЖНЫЕ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
-  # (Они должны совпадать с теми, что установлены через fly secrets set)
-  BOT_TOKEN = "7814059503:AAEKMUkOAso2q9rWIE6-So_ntDojnvXdaqM"
-  ADMIN_CHAT_ID = "676960893"
-  
-  # ПЕРЕМЕННЫЕ JWT/2FA (должны быть установлены как secrets)
-  ADMIN_JWT_SECRET = "d681c8d831d97ba3ce67a2eb0df57a48a9f29d56e7a5902cb424bc06958eb871"
-  ADMIN_2FA_SECRET = "X4OAJYYGBQAZRMHCHFRWP7SSOO4TXVDD"
-  
-  # Настройки вебхука и приложения
-  FLY_APP_NAME = "fotinia-final"
-  WEBHOOK_URL = "https://fotinia-final.fly.dev"
-  
-  # Стандартные переменные
+  # Путь к базе данных и контенту
   DATA_DIR = '/app/data'
   PORT = '8080'
   PYTHONUNBUFFERED = '1'
-  
-  # ✅ (Если используется) Не забудь установить OPENAI_API_KEY через fly secrets set!
-  # OPENAI_API_KEY = ...
+  # URL твоего приложения для установки вебхука
+  WEBHOOK_URL = 'https://fotinia-final-floral-sky-143.fly.dev'
 
 [processes]
   web = 'uvicorn bot.main:app --host 0.0.0.0 --port 8080'
@@ -37,15 +24,14 @@ primary_region = 'fra'
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'off'
-  auto_start_machines = false
+  auto_start_machines = true
   min_machines_running = 1
   processes = ['web']
 
   [[http_service.checks]]
-    # ✅ ИСПРАВЛЕННЫЕ ТАЙМАУТЫ: Даем больше времени на запуск!
-    interval = '10s'   # Проверка каждые 10 секунд
-    timeout = '5s'     # Таймаут ответа увеличен до 5s
-    grace_period = '15s' # Период ожидания перед первой проверкой увеличен до 15s
+    interval = '30s'      # Проверка каждые 30 секунд
+    timeout = '10s'       # Таймаут на ответ 10 секунд
+    grace_period = '90s'  # Даем полторы минуты на загрузку всех модулей и базы
     method = 'GET'
     path = '/'
     protocol = 'http'

@@ -1,9 +1,4 @@
-# 03 - bot/localization.py 
-# Локализация и переводы.
-
 from typing import Literal, Dict
-
-# ✅ ИСПРАВЛЕНИЕ: Добавлен префикс bot.
 from bot.config import settings, logger 
 
 # Типизация для языков
@@ -35,15 +30,17 @@ translations: Dict[Lang, Dict[str, str]] = {
         "user_grant_notification": "🎉 <b>Доступ активирован!</b>\n\nАдминистратор активировал ваш Premium-доступ. Поздравляем!\n\nНажмите /start, чтобы обновить клавиатуру.",
         
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ истекает менее чем через {hours} час(а). Не забудьте активировать подписку, чтобы не терять прогресс!",
-        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nДо возобновления демо-периода осталось **{hours} ч. {minutes} мин.**\n\nВы также можете активировать Premium-доступ прямо сейчас, нажав кнопку '👑 Хочу Premium'. 👇",
-        "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nВы можете активировать **еще один** пробный период ({demo_days} дня) или получить постоянный Premium-доступ.",
+        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nДо возобновления демо-периода осталось <b>{hours} ч. {minutes} мин.</b>\n\nВы также можете активировать Premium-доступ прямо сейчас, нажав кнопку '👑 Хочу Premium'. 👇",
+        "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закончился.</b>\n\nВы можете активировать <b>еще один</b> пробный период ({demo_days} дня) или получить постоянный Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваши пробные периоды закончились.</b>\n\nДля возобновления доступа, пожалуйста, активируйте Premium-подписку. 👇",
-        "demo_awaiting_renewal": "Понял. Ваш демо-период возобновится через **{hours} ч. {minutes} мин.**\n\nВ режиме ожидания рассылки отключены, но вы можете активировать Premium в любой момент.",
+        "demo_awaiting_renewal": "Понял. Ваш демо-период возобновится через <b>{hours} ч. {minutes} мин.</b>\n\nВ режиме ожидания рассылки отключены, но вы можете активировать Premium в любой момент.",
+        "demo_cooldown_msg": "⏸️ {name}, ваш первый демо-период закончился. Наступило время тишины. Бот возобновит работу автоматически через <b>{hours} ч.</b>",
+        "demo_restarted_info": "🌟 {name}, с возвращением! У Вас новый демо-период. Все функции возобновлены, прогресс сброшен. В добрый путь! 👇",
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
-        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите **245 грн** на эту Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖНО:** После оплаты, пожалуйста, пришлите скриншот чека нашему менеджеру: **@fotinia_admin**. Он увидит его и активирует ваш доступ вручну.",
+        
+        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите <b>245 грн</b> на эту Банку Monobank:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>ВАЖНО:</b> После оплаты, пожалуйста, пришлите скриншот чека нашему менеджеру: <b>@fotinia_admin</b>. Он увидит его и активирует ваш доступ вручну.",
         "pay_api_success_test": "✅ {name}, добро пожаловать в Premium! (Тест API)\nЯ буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение). Нажмите /start.",
         
-        # --- ИСПРАВЛЕНИЯ РЕАКЦИЙ И ШАРИНГА ---
         "share_text_template": "Посмотри, какой бот мне помогает двигаться к цели! @{bot_username}", 
         "reaction_received": "Благодарю за твою оценку, {name}!", 
         "reaction_already_accepted": "{name}, твоя оценка уже принята.",
@@ -88,7 +85,6 @@ translations: Dict[Lang, Dict[str, str]] = {
         "lang_choose": "Выберите язык: 👇",
         "lang_chosen": "✅ Язык установлен на Русский.",
         
-        # --- КНОПКИ ---
         "btn_motivate": "💪 Мотивируй меня", "btn_rhythm": "🎵 Ритм дня",
         "btn_challenge": "⚔️ Челлендж дня", "btn_rules": "📜 Правила Вселенной",
         "btn_profile": "👤 Профиль",
@@ -102,7 +98,8 @@ translations: Dict[Lang, Dict[str, str]] = {
         "btn_challenge_complete": "✅ Выполнено",
         "btn_settings": "⚙️ Настройки",
         "btn_back": "↩️ Назад",
-        "btn_test_broadcast": "🧪 Тест рассылки", # 🔥 НОВАЯ КНОПКА
+        "btn_test_broadcast": "🧪 Тест рассылки",
+        "btn_delete_profile": "🗑️ Удалить профиль",
         
         "msg_choose_action": "Выберите язык:", 
         "msg_welcome_back": "🏠 Вы вернулись в главное меню",
@@ -117,6 +114,18 @@ translations: Dict[Lang, Dict[str, str]] = {
         "profile_status_inactive": "Неактивных",
         "profile_status_demo_expired": "Закончилось демо",
         "profile_status_blocked": "Заблокировали",
+
+        "reminder_8": "Доброе утро, {name}! ☀️ Твой ознакомительный период окончен. Чтобы продолжать получать утреннюю поддержку и двигаться к целям, активируй Premium доступ. 👇",
+        "reminder_12": "Фокус дня, {name}! 🎯 Твои цели ждут реализации. Получи полный доступ ко всем инструментам Фотинии, чтобы ничего не упустить.",
+        "reminder_15": "День в разгаре, {name}! ⚡️ Не останавливайся на достигнутом. Premium статус позволит тебе получать Ритмы и Правила без ограничений.",
+        "reminder_18": "Добрый вечер, {name}! ✨ Время подвести итоги. Чтобы завтра снова начать день с правильным настроем, переходи на Premium.",
+        
+        # Ключи для Веб-профиля
+        "profile_your_status": "Ваш статус",
+        "profile_your_level": "Ваш уровень",
+        "profile_days_left": "До окончания периода осталось",
+        "profile_days_unit": "дн.",
+        "level_0": "Новичок", "level_1": "Практик", "level_2": "Специалист", "level_3": "Мастер", "level_4": "Эксперт",
     },
     "ua": {
         "lang_choose_first": COMMON_LANG_CHOOSE_FIRST,
@@ -137,16 +146,17 @@ translations: Dict[Lang, Dict[str, str]] = {
         "user_grant_notification": "🎉 <b>Доступ активовано!</b>\n\nАдміністратор активував ваш Premium-доступ. Вітаємо!\n\nНатисніть /start, щоб оновити клавіатуру.",
         
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ закінчується менш ніж за {hours} год. Не забудьте активувати підписку, щоб не втрачати прогрес!",
-        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nДо відновлення демо-періоду залишилося **{hours} год {minutes} хв.**\n\nАбо ви можете активувати Premium-доступ прямо зараз, натиснувши кнопку '👑 Хочу Premium'. 👇",
-        
-        "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати **ще один** пробний період ({demo_days} дні) або отримати постійний Premium-доступ.",
+        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nДо відновлення демо-періоду залишилося <b>{hours} год {minutes} хв.</b>\n\nАбо ви можете активувати Premium-доступ прямо зараз, натиснувши кнопку '👑 Хочу Premium'. 👇",
+        "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати <b>ще один</b> пробний період ({demo_days} дні) або отримати постійний Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваші пробні періоди закінчилися.</b>\n\nДля відновлення доступу, будь ласка, активуйте Premium-підписку. 👇",
-        "demo_awaiting_renewal": "Зрозумів. Ваш демо-період відновиться через **{hours} год {minutes} хв.**\n\nВ режимі очікування розсилки відключені, але ви можете активувати Premium у будь-який момент.",
+        "demo_awaiting_renewal": "Зрозумів. Ваш демо-період відновиться через <b>{hours} год {minutes} хв.</b>\n\nВ режимі очікування розсилки відключені, але ви можете активувати Premium у будь-який момент.",
+        "demo_cooldown_msg": "⏸️ {name}, ваш перший демо-період закінчився. Настав час тиші. Бот відновить роботу автоматично через <b>{hours} год.</b>",
+        "demo_restarted_info": "🌟 {name}, з поверненням! У Вас новий демо-період. Всі функції відновлено, прогрес скинуто. В добру путь! 👇",
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
-        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть **245 грн** на цю Банку Monobank:\n\n`https://send.monobank.ua/jar/ao8c487LS`\n\n**ВАЖЛИВО:** Після оплати, будь ласка, надішліть скріншот чека нашому менеджеру: **@fotinia_admin**. Він побачить його та активує ваш доступ вручну.",
+        
+        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть <b>245 грн</b> на цю Банку Monobank:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>ВАЖЛИВО:</b> Після оплати, будь ласка, надішліть скріншот чека нашому менеджеру: <b>@fotinia_admin</b>. Він побачить його та активує ваш доступ вручну.",
         "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення). Натисніть /start.",
         
-        # --- ИСПРАВЛЕНИЯ РЕАКЦИЙ И ШАРИНГА ---
         "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}", 
         "reaction_received": "Дякую за твою оцінку, {name}!", 
         "reaction_already_accepted": "{name}, твоя оцінка вже прийнята.",
@@ -191,7 +201,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "lang_choose": "Оберіть мову: 👇",
         "lang_chosen": "✅ Мову встановлено на Українську.",
         
-        "btn_motivate": "💪 Мотивуй мене", "btn_rhythm": "🎵 Ритм дня",
+        "btn_motivate": "💪 Мотивий мене", "btn_rhythm": "🎵 Ритм дня",
         "btn_challenge": "⚔️ Челендж дня", "btn_rules": "📜 Правила Всесвіту",
         "btn_profile": "👤 Профіль",
         "btn_share": "💌 Поділитися з другом",
@@ -204,14 +214,15 @@ translations: Dict[Lang, Dict[str, str]] = {
         "btn_challenge_complete": "✅ Виконано",
         "btn_settings": "⚙️ Налаштування",
         "btn_back": "↩️ Назад",
-        "btn_test_broadcast": "🧪 Тест розсилки", # 🔥 НОВАЯ КНОПКА
+        "btn_test_broadcast": "🧪 Тест розсилки",
+        "btn_delete_profile": "🗑️ Видалити профіль",
         
         "msg_choose_action": "Оберіть мову:", 
         "msg_welcome_back": "🏠 Ви повернулися в головне меню",
 
         "title_motivation": "💪", "title_rhythm": "🎶 Ритм дня:", "title_rules": "📜 Правила Всесвіту",
         "title_rules_daily": "📜 <b>{title} ({count}/{limit}):</b>",
-        "rules_limit_reached": "На сьогодні це всі закони. Нові ти дізнаєшся завтра! 🌙",
+        "rules_limit_reached": "На сегодня это все законы. Новые ты узнаешь завтра! 🌙",
         "profile_status_total": "Всього",
         "profile_status_active": "Активних",
         "profile_status_first_time": "Перший раз",
@@ -219,6 +230,18 @@ translations: Dict[Lang, Dict[str, str]] = {
         "profile_status_inactive": "Неактивних",
         "profile_status_demo_expired": "Закінчилося демо",
         "profile_status_blocked": "Заблокували",
+
+        "reminder_8": "Доброго ранку, {name}! ☀️ Твій ознайомчий період закінчився. Щоб продовжувати отримувати підтримку та рухатися до мети, активуй Premium доступ. 👇",
+        "reminder_12": "Фокус дня, {name}! 🎯 Твої цілі чекають на реалізацію. Отримай повний доступ до всіх інструментів Фотінії, щоб нічого не втратити.",
+        "reminder_15": "День у розпалі, {name}! ⚡️ Не зупиняйся на досягнутому. Premium статус дозволить тобі отримувати Ритми та Правила без обмежень.",
+        "reminder_18": "Доброго вечора, {name}! ✨ Час підбити підсумки. Щоб завтра знову почати день з правильним настроєм, переходь на Premium.",
+        
+        # Ключі для Веб-профілю
+        "profile_your_status": "Ваш статус",
+        "profile_your_level": "Ваш рівень",
+        "profile_days_left": "До закінчення періоду залишилося",
+        "profile_days_unit": "дн.",
+        "level_0": "Новачок", "level_1": "Практик", "level_2": "Спеціаліст", "level_3": "Майстер", "level_4": "Експерт",
     },
     "en": {
         "lang_choose_first": COMMON_LANG_CHOOSE_FIRST,
@@ -239,15 +262,16 @@ translations: Dict[Lang, Dict[str, str]] = {
         "user_grant_notification": "🎉 <b>Access Activated!</b>\n\nThe administrator has activated your Premium access. Congratulations!\n\nPlease press /start to refresh your keyboard.",
         
         "demo_expiring_soon_h": "🔒 {name}, your demo access expires in less than {hours} hour(s). Don't forget to activate your subscription to keep your progress!",
-        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can reactivate a new demo period in **{hours}h {minutes}m**.\n\nOr you can activate Premium access right now by pressing 'Pay'. 👇",
-        "demo_expired_choice": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can activate **one more** trial period ({demo_days} days) or get permanent Premium access.",
+        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can reactivate a new demo period in <b>{hours}h {minutes}m</b>.\n\nOr you can activate Premium access right now by pressing 'Pay'. 👇",
+        "demo_expired_choice": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can activate <b>one more</b> trial period ({demo_days} days) or get permanent Premium access.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Your trial periods have ended.</b>\n\nTo resume access, please activate your Premium subscription. 👇",
-        "demo_awaiting_renewal": "Got it. Your demo period will resume in **{hours}h {minutes}m**.\n\nBroadcasts are disabled in standby mode, but you can activate Premium at any time.",
+        "demo_awaiting_renewal": "Got it. Your demo period will resume in <b>{hours}h {minutes}m</b>.\n\nBroadcasts are disabled in standby mode, but you can activate Premium at any time.",
+        "demo_cooldown_msg": "⏸️ {name}, your first demo period has ended. Quiet time has begun. The bot will resume automatically in <b>{hours} h.</b>",
+        "demo_restarted_info": "🌟 {name}, welcome back! You have a new demo period. All functions are restored, progress reset. Good luck! 👇",
         "pay_info": "💳 For full access, please contact the administrator.",
         "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
         "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
         
-        # --- ИСПРАВЛЕНИЯ РЕАКЦИЙ И ШАРИНГА ---
         "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}", 
         "reaction_received": "Thank you for your rating, {name}!", 
         "reaction_already_accepted": "{name}, your rating has already been received.",
@@ -263,7 +287,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "profile_likes": "👍 Likes",
         "profile_dislikes": "👎 Dislikes",
         "status_premium": "⭐ Premium",
-        "status_demo": "🆓 Demo",
+        "status_demo": "🆓 Демо",
         "list_empty": "⚠️ The list for '{title}' is empty.",
         "list_error_format": "⚠️ Error formatting text for '{title}'. Missing key: {e}",
         "list_error_index": "⚠️ An error occurred while selecting an item from the list '{title}'. The list may be empty.",
@@ -287,7 +311,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "start_required": "It seems we haven't met. Please press /start to begin.",
         "admin_new_user": "🎉 New user: {name} (ID: {user_id})",
         "admin_stats_button": "📊 Show Statistics",
-        "admin_bot_started": "🤖 Bot successfully launched (v10.17 - Refactored)",
+        "admin_bot_started": "🤖 Бот успешно запущен (v10.17 - Refactored)",
         "admin_bot_stopping": "⏳ Bot is stopping...",
         "lang_choose": "Select language: 👇",
         "lang_chosen": "✅ Language set to English.",
@@ -303,11 +327,11 @@ translations: Dict[Lang, Dict[str, str]] = {
         "btn_want_demo": "🔄 Want Demo",
         "btn_challenge_accept": "✅ Accept", "btn_challenge_new": "🎲 New",
         "btn_challenge_complete": "✅ Done",
-
         "btn_settings": "⚙️ Settings",
         "btn_back": "↩️ Back",
-        "btn_test_broadcast": "🧪 Test Broadcast", # 🔥 НОВАЯ КНОПКА
-
+        "btn_test_broadcast": "🧪 Test Broadcast",
+        "btn_delete_profile": "🗑️ Delete Profile",
+        
         "msg_choose_action": "Select language:", 
         "msg_welcome_back": "🏠 You are back in the main menu",
 
@@ -321,27 +345,28 @@ translations: Dict[Lang, Dict[str, str]] = {
         "profile_status_inactive": "Inactive",
         "profile_status_demo_expired": "Demo expired",
         "profile_status_blocked": "Blocked",
+
+        "reminder_8": "Good morning, {name}! ☀️ Your trial period has ended. To continue receiving support and moving towards your goals, activate Premium access. 👇",
+        "reminder_12": "Focus of the day, {name}! 🎯 Your goals are waiting. Get full access to all Fotinia tools so you don't miss anything.",
+        "reminder_15": "Day is in full swing, {name}! ⚡️ Don't stop there. Premium status will allow you to receive Rhythms and Rules without limits.",
+        "reminder_18": "Good evening, {name}! ✨ Time to summarize. To start tomorrow with the right mindset again, switch to Premium.",
+        
+        # Profile Web keys
+        "profile_your_status": "Your status",
+        "profile_your_level": "Your level",
+        "profile_days_left": "Days left until the end of period",
+        "profile_days_unit": "days",
+        "level_0": "Novice", "level_1": "Practitioner", "level_2": "Specialist", "level_3": "Master", "level_4": "Expert",
     }
 }
 
-
 def t(key: str, lang: Lang = DEFAULT_LANG, **kwargs) -> str:
-    """
-    Главная функция для получения перевода.
-    t('welcome', 'ua', name="Олег")
-    """
-    # 1. Пытаемся взять перевод на нужном языке
-    # 2. Если его нет, пытаемся взять на языке по умолчанию (ru)
-    # 3. Если и его нет, возвращаем сам ключ (например, 'btn_settings')
     text = translations.get(lang, translations[DEFAULT_LANG]).get(key, key)
-    
+    if "{name}" in text and "name" not in kwargs:
+        kwargs["name"] = ""
     try:
-        # Добавляем {name} по умолчанию, чтобы избежать KeyError
-        if 'name' not in kwargs and '{name}' in text:
-            kwargs['name'] = 'друг'
-            
-        return text.format(**kwargs)
+        formatted = text.format(**kwargs)
+        return formatted.replace(" ,", ",").replace("  ", " ").strip()
     except KeyError as e:
-        # Если не хватает какого-то другого ключа (напр. {demo_days})
         logger.error(f"Missing key '{e}' during formatting text for key '{key}' in lang '{lang}'")
-        return text.replace(f"{{{str(e)}}}", "[ДАННЫЕ]") # Возвращаем текст без сломанного ключа
+        return text.replace(f"{{{str(e)}}}", "").strip()

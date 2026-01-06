@@ -1,269 +1,147 @@
-# 02 - bot/database.py
-# Менеджер базы данных SQLite
-
+# bot/database.py
+import sqlite3
 import json
-import aiosqlite
+import logging
 from typing import Dict, Any, List, Optional
-from pathlib import Path
 
-# ✅ ИСПРАВЛЕНО: Импорт с префиксом bot.
-from bot.config import settings, logger
+logger = logging.getLogger(__name__)
 
 class Database:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: str):
         self.db_path = db_path
 
-    async def _get_db(self):
-        """Возвращает подключение к БД с row_factory."""
-        db = await aiosqlite.connect(self.db_path)
-        db.row_factory = aiosqlite.Row
-        return db
-
-    async def connect(self):
-        """Создает подключение и таблицы."""
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    data TEXT NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    fsm_state TEXT,
-                    fsm_data TEXT
-                )
-            """)
-            try:
-                # Попытка добавить колонки, если их еще нет (миграция для старых БД)
-                await db.execute("ALTER TABLE users ADD COLUMN fsm_state TEXT")
-                await db.execute("ALTER TABLE users ADD COLUMN fsm_data TEXT")
-                logger.info("Database migration: Added FSM columns.")
-            except aiosqlite.OperationalError:
-                pass # Колонки уже существуют
-            
-            await db.commit()
-            logger.info("💾 Database connected and tables checked.")
-            
-    # 🔥 ОБНОВЛЕННЫЙ МЕТОД INIT С МИГРАЦИЕЙ POINTS
     async def init(self):
-        await self.connect()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
         
-        # --- 🛡️ МИГРАЦИЯ JSON (Safe Fix) ---
-        # Проверяем старых пользователей и добавляем им points, если нет
-        logger.info("🔍 Checking for JSON schema updates (points)...")
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            # Берем всех пользователей
-            async with db.execute("SELECT user_id, data FROM users") as cursor:
-                rows = await cursor.fetchall()
-                
-                updates = []
-                for row in rows:
-                    try:
-                        u_data = json.loads(row["data"])
-                        changed = False
-                        
-                        # 1. Миграция Points
-                        if "points" not in u_data:
-                            u_data["points"] = 0
-                            changed = True
-                            
-                        # Здесь можно добавлять другие поля в будущем...
-                        
-                        if changed:
-                            updates.append((json.dumps(u_data, ensure_ascii=False), row["user_id"]))
-                    except Exception:
-                        continue
-                
-                # Если нашли кого обновлять — обновляем пачкой
-                if updates:
-                    await db.executemany("UPDATE users SET data = ? WHERE user_id = ?", updates)
-                    await db.commit()
-                    logger.info(f"✅ JSON Migration: Added 'points: 0' to {len(updates)} old users.")
-                else:
-                    logger.info("✅ JSON Migration: All users already have points.")
+        # Создаем таблицу, если её нет
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                name TEXT,
+                language TEXT DEFAULT 'ru',
+                data TEXT NOT NULL DEFAULT '{}'
+            )
+        ''')
 
-    async def close(self):
-        """Заглушка, чтобы соответствовать интерфейсу Aiogram Storage."""
-        pass 
+        # Список всех необходимых колонок для миграции
+        cols = [
+            ("timezone", "TEXT DEFAULT 'Europe/Kiev'"),
+            ("is_paid", "INTEGER DEFAULT 0"),
+            ("status", "TEXT DEFAULT 'demo'"),
+            ("demo_expiration", "TEXT"),
+            ("active", "INTEGER DEFAULT 1"),
+            ("last_challenge_date", "TEXT"),
+            ("challenge_accepted", "INTEGER DEFAULT 0"),
+            ("challenges", "TEXT NOT NULL DEFAULT '[]'"),
+            ("challenge_streak", "INTEGER DEFAULT 0"),
+            ("fsm_state", "TEXT"),
+            ("fsm_data", "TEXT"),
+            ("last_rules_date", "TEXT"),
+            ("rules_shown_count", "INTEGER DEFAULT 0"),
+            ("rules_indices_today", "TEXT NOT NULL DEFAULT '[]'"),
+            ("sent_expiry_warning", "INTEGER DEFAULT 0"),
+            ("stats_likes", "INTEGER DEFAULT 0"),
+            ("stats_dislikes", "INTEGER DEFAULT 0"),
+            ("demo_count", "INTEGER DEFAULT 1")
+        ]
 
-    async def migrate_from_json(self, json_path: Path):
-        if not json_path.exists():
-            return
-        
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT COUNT(*) FROM users") as cursor:
-                count = (await cursor.fetchone())[0]
-                if count > 0:
-                    logger.info("💾 Database is not empty. Skipping migration.")
-                    return
-
-            logger.info(f"🔄 Starting migration from {json_path}...")
+        # Автоматическое добавление отсутствующих колонок
+        for col, definition in cols:
             try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                users_to_insert = []
-                for user_id_str, user_data in data.items():
-                    try:
-                        uid = int(user_id_str)
-                        # При миграции из старого JSON тоже добавим points, если их нет
-                        if "points" not in user_data:
-                            user_data["points"] = 0
-                        users_to_insert.append((uid, json.dumps(user_data, ensure_ascii=False)))
-                    except ValueError:
-                        continue
-                
-                if users_to_insert:
-                    await db.executemany(
-                        "INSERT OR REPLACE INTO users (user_id, data) VALUES (?, ?)",
-                        users_to_insert
-                    )
-                    await db.commit()
-                    logger.info(f"✅ Migrated {len(users_to_insert)} users from JSON to SQLite.")
-                    
-            except Exception as e:
-                logger.error(f"❌ Migration failed: {e}")
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
+            except sqlite3.OperationalError:
+                pass  # Колонка уже существует
 
-    # ✅ НОВЫЙ МЕТОД: УДАЛЕНИЕ ЮЗЕРА
-    async def delete_user(self, user_id: int):
-        """Полностью удаляет пользователя из базы."""
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
-            await db.commit()
-            logger.info(f"🗑️ User {user_id} deleted from SQLite.")
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized and migrated successfully.")
+
+    def _safe_load(self, val: Any) -> Any:
+        if isinstance(val, (dict, list)): 
+            return val
+        try: 
+            return json.loads(val) if val else {}
+        except: 
+            return {}
+
+    async def add_user(self, user_id: int, username: Optional[str], full_name: str, language: str = "ru"):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO users (user_id, username, name, language) 
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET name=excluded.name, username=excluded.username
+        ''', (user_id, username, full_name, language))
+        conn.commit()
+        conn.close()
 
     async def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Получает данные пользователя (data) как словарь."""
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT data FROM users WHERE user_id = ?", (user_id,)) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    return json.loads(row["data"])
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,)).fetchone()
+        conn.close()
+        if row:
+            d = dict(row)
+            # Распаковываем JSON-поля
+            for k in ["challenges", "rules_indices_today", "data", "fsm_data"]:
+                d[k] = self._safe_load(d.get(k))
+            return d
         return None
 
-    async def get_fsm_storage(self, user_id: int) -> Dict[str, Any]:
-        """Получает FSM state и data."""
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT fsm_state, fsm_data FROM users WHERE user_id = ?", (user_id,)) as cursor:
-                row = await cursor.fetchone()
-                if row and row["fsm_state"]:
-                    return {
-                        "state": row["fsm_state"],
-                        "data": json.loads(row["fsm_data"] or "{}")
-                    }
-        return {"state": None, "data": {}}
-
-    async def update_fsm_storage(self, user_id: int, state: Any = None, data: Optional[Dict] = None):
-        """Обновляет FSM state и data."""
-        
-        # ✅ FIX: Превращаем объект State в строку перед записью в БД
-        if state is not None:
-            state = str(state)
-
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE users SET fsm_state = ?, fsm_data = ? WHERE user_id = ?",
-                (state, json.dumps(data or {}), user_id)
-            )
-            await db.commit()
-
     async def update_user(self, user_id: int, **kwargs):
-        """Точечно обновляет поля в user_data (JSON)."""
-        if not kwargs:
-            return
-
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT data FROM users WHERE user_id = ?", (user_id,)) as cursor:
-                row = await cursor.fetchone()
-                if not row:
-                    # Если юзера нет, ничего не делаем (он создается через add_user)
-                    return
-                try:
-                    user_data = json.loads(row["data"])
-                except Exception:
-                    user_data = {}
-
-            user_data.update(kwargs)
-            
-            json_data = json.dumps(user_data, ensure_ascii=False)
-            await db.execute(
-                "UPDATE users SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-                (json_data, user_id)
-            )
-            await db.commit()
-
-    async def add_user(self, user_id: int, username: Optional[str], full_name: str, language: str = "ru", timezone: str = "Europe/Kiev", active: bool = True):
-        """Добавляет нового пользователя."""
-        new_user_data = {
-            "id": user_id,
-            "username": username,
-            "name": full_name,
-            "language": language,
-            "timezone": timezone,
-            "active": active,
-            "points": 0,  # ✅ ДОБАВЛЕНО: Теперь у всех новых будет 0 баллов
-            "demo_count": 0,
-            "demo_expiration": None,
-            "challenge_streak": 0,
-            "challenges": [],
-            "last_challenge_date": None,
-            "last_rules_date": None,
-            "rules_shown_count": 0,
-            "rules_indices_today": [],
-            "sent_expiry_warning": False,
-            "is_paid": False,
-            "stats_likes": 0,
-            "stats_dislikes": 0,
-            "status": "new"
-        }
-        json_data = json.dumps(new_user_data, ensure_ascii=False)
+        conn = sqlite3.connect(self.db_path)
+        params = []
+        sql_parts = []
+        for k, v in kwargs.items():
+            sql_parts.append(f"{k} = ?")
+            if isinstance(v, (dict, list)):
+                params.append(json.dumps(v, ensure_ascii=False))
+            else:
+                params.append(v)
         
-        async with aiosqlite.connect(self.db_path) as db:
-            # INSERT OR IGNORE, чтобы не перезаписать существующего
-            await db.execute(
-                "INSERT OR IGNORE INTO users (user_id, data) VALUES (?, ?)",
-                (user_id, json_data)
-            )
-            await db.commit()
+        params.append(user_id)
+        conn.execute(f"UPDATE users SET {', '.join(sql_parts)} WHERE user_id = ?", params)
+        conn.commit()
+        conn.close()
 
     async def get_all_users(self) -> Dict[str, Any]:
-        """Загружает ВСЕХ пользователей в память (для админки и кэша рассылок)."""
-        users_dict = {}
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT user_id, data FROM users") as cursor:
-                async for row in cursor:
-                    try:
-                        user_id = str(row["user_id"])
-                        user_data = json.loads(row["data"])
-                        users_dict[user_id] = user_data
-                    except Exception as e:
-                        logger.error(f"Error loading user {row['user_id']}: {e}")
-                        continue
-        return users_dict
-    
-    # --- Методы подсчета статистики ---
-    async def count_users(self) -> int:
-        async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM users") as cursor:
-                return (await cursor.fetchone())[0]
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute('SELECT * FROM users').fetchall()
+        conn.close()
+        
+        result = {}
+        for r in rows:
+            d = dict(r)
+            # Распаковываем JSON для корректной работы планировщика
+            for k in ["challenges", "rules_indices_today", "data", "fsm_data"]:
+                d[k] = self._safe_load(d.get(k))
+            result[str(r["user_id"])] = d
+        return result
 
-    async def count_paid_users(self) -> int:
-        count = 0
-        all_users = await self.get_all_users()
-        for u in all_users.values():
-            if u.get("is_paid"): count += 1
-        return count
+    async def update_fsm_storage(self, user_id: int, state: str = None, data: dict = None):
+        upd = {}
+        if state is not None: 
+            upd["fsm_state"] = state
+        if data is not None: 
+            upd["fsm_data"] = data
+        if upd: 
+            await self.update_user(user_id, **upd)
 
-    async def count_demo_users(self) -> int:
-        count = 0
-        all_users = await self.get_all_users()
-        for u in all_users.values():
-            if u.get("status") in ('active_demo', 'awaiting_renewal'): count += 1
-        return count
+    async def get_fsm_storage(self, user_id: int) -> Dict[str, Any]:
+        u = await self.get_user(user_id)
+        if u:
+            return {"state": u.get("fsm_state"), "data": u.get("fsm_data") or {}}
+        return {"state": None, "data": {}}
 
-db = Database(settings.DB_FILE)
+    async def delete_user(self, user_id: int):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+
+from bot.config import settings
+db = Database(str(settings.DB_FILE))
