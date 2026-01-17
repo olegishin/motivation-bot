@@ -1,211 +1,242 @@
 # 08 - bot/content_handlers.py
+# Логика отправки контента (функции, которые вызывает button_handlers)
+# Полная эталонная версия: Лимиты 5+1+5, Синхронизация кэша, Логика Демо
+# Логика отправки контента (Фикс реакций: Цитирование + Галочки)
+# Логика отправки контента (ФИНАЛЬНАЯ ВЕРСИЯ: Цитирование + Галочки + Умные уведомления)
+# Логика отправки контента (ФИНАЛЬНАЯ ВЕРСИЯ: Большое окно уведомления show_alert=True)
+# Логика отправки контента (ФИНАЛЬНАЯ ВЕРСИЯ: Фикс отображения лайков в профиле)
+# Логика отправки контента (ФИНАЛЬНАЯ ВЕРСИЯ: Фикс импорта + Лайки в профиле)
+# Логика отправки контента (ФИНАЛЬНЫЙ ФИКС: Гарантированное обновление лайков в БД)
+# ФИНАЛЬНАЯ ВЕРСИЯ: Синхронизация полей статистики для WebApp Профиля
+# ФИНАЛЬНАЯ ВЕРСИЯ: Исправлена ошибка базы данных (no such column)
+# ФИНАЛЬНАЯ ВЕРСИЯ: Синхронизация полей статистики для WebApp Профиля
+# Логика отправки контента (функции, которые вызывает button_handlers)
+# Логика отправки контента (Ультимативная версия: Guard + Logs + Admin Notif)
+# Логика отправки контента (функции, которые вызывает button_handlers)
+# Ультимативная версия: Guard + Logs + Admin Notif + WebApp Sync
+# Логика отправки контента (функции, которые вызывает button_handlers)
+# Ультимативная версия: Guard + Logs + Admin Notif + WebApp Sync
+# (ФИНАЛЬНАЯ ВЕРСИЯ: Текст оплаты берет данные из конфига)
+# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
+# Динамические ключи статистики, DRY-рефакторинг, расширенное логирование
+
 import random
-import asyncio
-import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from aiogram import Bot
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
 
 from bot.config import settings, logger
 from bot.localization import t, Lang
 from bot.database import db
 from bot.keyboards import (
-    get_main_keyboard, get_broadcast_keyboard, 
-    get_payment_keyboard, get_reply_keyboard_for_user
+    get_main_keyboard, get_broadcast_keyboard,
+    get_payment_keyboard
 )
-from bot.utils import safe_send, get_user_tz
+from bot.utils import get_user_tz, get_demo_config
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+# --- 🛡️ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 
 async def notify_admins(bot: Bot, text: str):
-    admin_id = settings.ADMIN_CHAT_ID 
+    """Отправляет уведомление администратору."""
+    admin_id = settings.ADMIN_CHAT_ID
     if admin_id:
         try:
             await bot.send_message(admin_id, text, parse_mode=ParseMode.HTML)
         except Exception as e:
-            logger.error(f"Failed to notify admin {admin_id}: {e}")
+            logger.error(f"Handlers: Admin notify failed: {e}")
 
-# --- ЛОГИКА СТАРТА ---
+# --- 🚀 ЛОГИКА СТАРТА ---
+
 async def handle_start_command(message: Message, static_data: dict, user_data: dict, lang: Lang, is_new_user: bool = False):
     user_id = message.from_user.id
     bot = message.bot
     name = message.from_user.first_name
-    
-    if is_new_user:
-        days = getattr(settings, 'REGULAR_DEMO_DAYS', 30) 
-        expiration = (datetime.now(ZoneInfo("UTC")) + timedelta(days=days)).isoformat()
-        
-        await db.update_user(user_id, status="active_demo", active=True, demo_count=1, demo_expiration=expiration, language=lang)
-        user_data.update({"status": "active_demo", "active": True, "demo_count": 1, "demo_expiration": expiration, "language": lang})
 
-        welcome_text = t('welcome', lang, name=name, demo_days=days) 
+    if is_new_user:
+        config = get_demo_config(user_id)
+        days = config["demo"]
+        expiration = (datetime.now(ZoneInfo("UTC")) + timedelta(days=days)).isoformat()
+
+        await db.update_user(
+            user_id,
+            status="active_demo",
+            active=True,
+            demo_count=1,
+            demo_expiration=expiration,
+            language=lang
+        )
+
+        welcome_text = t('welcome', lang, name=name, demo_days=days)
         kb = get_main_keyboard(lang, user_id=user_id)
         await message.answer(welcome_text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        
+
         await notify_admins(bot, f"🆕 <b>Новый пользователь!</b>\n👤 {name} (ID: <code>{user_id}</code>)\n🌍 Язык: {lang}")
     else:
-        status_text = t('status_premium', lang) if user_data.get("is_paid") else t('status_demo', lang)
-        
-        if not user_data.get("is_paid"):
+        is_paid = user_data.get("is_paid", False)
+        status_text = t('status_premium', lang) if is_paid else t('status_demo', lang)
+
+        if not is_paid:
             exp = user_data.get("demo_expiration")
             if exp:
-                dt_exp = datetime.fromisoformat(exp.replace('Z', '+00:00'))
-                now = datetime.now(ZoneInfo("UTC"))
-                days_left = (dt_exp - now).days
-                status_text = f"{t('status_demo', lang)} ({max(0, days_left)} дн.)" 
-            else:
-                status_text = f"{t('status_demo', lang)} (0 дн.)" 
-        
+                try:
+                    dt_exp = datetime.fromisoformat(exp.replace('Z', '+00:00'))
+                    days_left = (dt_exp - datetime.now(ZoneInfo("UTC"))).days
+                    status_text = f"{t('status_demo', lang)} ({max(0, days_left)} {t('profile_days_unit', lang)})"
+                except Exception:
+                    status_text = t('status_demo', lang)
+
         welcome_text = t('welcome_return', lang, name=name, status_text=status_text)
         kb = get_main_keyboard(lang, user_id=user_id)
         await message.answer(welcome_text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        
-        if user_id != settings.ADMIN_CHAT_ID: 
-             await notify_admins(bot, f"👋 <b>Пользователь вернулся:</b>\n👤 {name} (ID: <code>{user_id}</code>)")
 
-# --- ОТПРАВКА ИЗ СПИСКА ---
+        if user_id != settings.ADMIN_CHAT_ID:
+            await notify_admins(bot, f"👋 <b>Пользователь вернулся:</b>\n👤 {name} (ID: <code>{user_id}</code>)")
+
+# --- 📜 ОТПРАВКА КОНТЕНТА ---
+
 async def send_from_list(message: Message, static_data: dict, user_data: dict, lang: Lang, list_key: str, title_key: str):
-    content_data = static_data.get(list_key, {})
-    if isinstance(content_data, dict):
-        phrases = content_data.get(lang, content_data.get("ru", []))
-    else:
-        phrases = content_data if isinstance(content_data, list) else []
+    if getattr(message, f"_handled_{list_key}", False):
+        return
+    setattr(message, f"_handled_{list_key}", True)
 
-    if not phrases:
+    content_data = static_data.get(list_key, {})
+    phrases = content_data.get(lang, content_data.get("ru", [])) if isinstance(content_data, dict) else content_data
+
+    if not phrases or not isinstance(phrases, list):
+        logger.error(f"Handlers: Content list {list_key} is empty/invalid for user {message.from_user.id}.")
         await message.answer(t('list_empty', lang, title=t(title_key, lang)))
         return
 
     phrase_raw = random.choice(phrases)
-    phrase = phrase_raw.get("text") or phrase_raw.get("content") or str(phrase_raw) if isinstance(phrase_raw, dict) else str(phrase_raw)
+    phrase = str(phrase_raw.get("text") or phrase_raw.get("content") or phrase_raw) if isinstance(phrase_raw, dict) else str(phrase_raw)
 
     user_name = user_data.get("name") or message.from_user.first_name
-    try: phrase = phrase.format(name=user_name)
-    except: pass
+    try:
+        phrase = phrase.format(name=user_name)
+    except Exception as e:
+        logger.error(f"Format error in {list_key} for {message.from_user.id}: {e}")
 
     kb = get_broadcast_keyboard(lang, quote_text=phrase, category=list_key, user_name=user_name)
     await message.answer(phrase, reply_markup=kb, parse_mode=ParseMode.HTML)
 
-# --- ЛОГИКА РЕАКЦИЙ И ЧЕЛЛЕНДЖЕЙ ---
+# --- ❤️ ЛОГИКА РЕАКЦИЙ (ОБЩАЯ) ---
 
-async def handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang):
-    """Алиас для обработки реакций из колбэков."""
-    data = callback.data
-    if "like" in data:
-        await handle_like(callback, user_data, lang)
-    elif "dislike" in data:
-        await handle_dislike(callback, user_data, lang)
+async def _handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang, reaction_type: str):
+    """Универсальный обработчик реакций."""
+    user_id = callback.from_user.id
+    name = user_data.get("name") or callback.from_user.first_name
+
+    if any("✅" in btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row):
+        await callback.answer(t('reaction_already_accepted', lang, name=name), show_alert=True)
+        return
+
+    # Динамическое формирование ключа: stats_likes или stats_dislikes
+    stat_key = f"stats_{reaction_type}s"
+    fresh_user = await db.get_user(user_id)
+    new_val = (fresh_user.get(stat_key, 0) if fresh_user else 0) + 1
+    await db.update_user(user_id, **{stat_key: new_val})
+
+    category = callback.data.split(":")[-1] if ":" in callback.data else "default"
+    new_kb = get_broadcast_keyboard(lang, callback.message.text, category, reaction_type, name)
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=new_kb)
+    except Exception as e:
+        if "message is not modified" not in str(e).lower():
+            logger.error(f"Reaction ({reaction_type}) update error for {user_id}: {e}")
+
+    await callback.message.reply(t('reaction_received', lang, name=name), parse_mode=ParseMode.HTML)
+    await callback.answer()
 
 async def handle_like(callback: CallbackQuery, user_data: dict, lang: Lang):
-    likes = user_data.get("stats_likes", 0) + 1
-    await db.update_user(callback.from_user.id, stats_likes=likes)
-    user_data["stats_likes"] = likes
-    await callback.answer(t('msg_like_thanks', lang))
+    await _handle_reaction(callback, user_data, lang, "like")
 
 async def handle_dislike(callback: CallbackQuery, user_data: dict, lang: Lang):
-    dislikes = user_data.get("stats_dislikes", 0) + 1
-    await db.update_user(callback.from_user.id, stats_dislikes=dislikes)
-    user_data["stats_dislikes"] = dislikes
-    await callback.answer(t('msg_dislike_thanks', lang))
+    await _handle_reaction(callback, user_data, lang, "dislike")
 
-async def handle_accept_challenge_idx(callback: CallbackQuery, user_data: dict, lang: Lang):
-    """Обработка принятия конкретного челленджа."""
-    await handle_accept_challenge(callback, user_data, lang)
+# --- ⚖️ ПРАВИЛА ---
 
-async def handle_accept_challenge(callback: CallbackQuery, user_data: dict, lang: Lang):
-    user_id = callback.from_user.id
-    await db.update_user(user_id, challenge_accepted=True)
-    user_data["challenge_accepted"] = True
-    
-    await callback.answer(t('challenge_accepted_toast', lang))
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except: pass
-    await callback.message.answer(t('challenge_accepted_msg', lang), parse_mode=ParseMode.HTML)
-
-async def handle_new_challenge(callback: CallbackQuery, user_data: dict, lang: Lang):
-    """Запрос нового челленджа."""
-    # Логика может быть расширена, пока просто уведомляем
-    await callback.answer("Генерирую новый челлендж...")
-    # Здесь можно вызвать функцию отправки нового челленджа
-
-# --- ОТПРАВКА ПРАВИЛ ---
 async def send_rules(message: Message, static_data: dict, user_data: dict, lang: Lang):
     user_id = message.from_user.id
-    user_tz = get_user_tz(user_data)
-    today_iso = datetime.now(user_tz).date().isoformat()
-    
-    if user_data.get("last_rules_date") != today_iso:
-        await db.update_user(user_id, last_rules_date=today_iso, rules_shown_count=0, rules_indices_today=json.dumps([]))
-        user_data.update({"last_rules_date": today_iso, "rules_shown_count": 0, "rules_indices_today": []})
+    if getattr(message, "_rules_handled", False): return
+    message._rules_handled = True
 
-    shown_count = user_data.get("rules_shown_count", 0)
+    fresh_user = await db.get_user(user_id)
+    if fresh_user: user_data.update(fresh_user)
+
+    user_tz = get_user_tz(user_data)
+    today = datetime.now(user_tz).date().isoformat()
+
+    if user_data.get("last_rules_date") != today:
+        logger.info(f"Rules: Resetting daily limit for user {user_id}")
+        await db.update_user(user_id, last_rules_date=today, rules_shown_count=0, rules_indices_today=[])
+        user_data.update({"last_rules_date": today, "rules_shown_count": 0, "rules_indices_today": []})
+
+    shown_count = int(user_data.get("rules_shown_count", 0))
     if shown_count >= settings.RULES_PER_DAY_LIMIT:
         await message.answer(t('rules_limit_reached', lang))
         return
 
-    rules_list = static_data.get("rules", {}).get(lang, [])
+    rules_list = static_data.get("rules", {}).get(lang) or static_data.get("rules", {}).get("ru", [])
     if not rules_list:
         await message.answer(t('list_empty', lang, title="Rules"))
         return
 
     shown_indices = user_data.get("rules_indices_today") or []
-    if isinstance(shown_indices, str):
-        try: shown_indices = json.loads(shown_indices)
-        except: shown_indices = []
+    available = [i for i in range(len(rules_list)) if i not in shown_indices] or list(range(len(rules_list)))
 
-    available_indices = [i for i in range(len(rules_list)) if i not in shown_indices] or list(range(len(rules_list)))
-    idx = random.choice(available_indices)
+    idx = random.choice(available)
     rule_text = rules_list[idx]
-    
-    new_shown = shown_indices + [idx]
-    await db.update_user(user_id, rules_shown_count=shown_count + 1, rules_indices_today=json.dumps(new_shown))
-    
-    header = t('title_rules_daily', lang, title=t('title_rules', lang), count=shown_count + 1, limit=settings.RULES_PER_DAY_LIMIT)
-    kb = get_broadcast_keyboard(lang, quote_text=rule_text, category="rules")
-    await message.answer(f"{header}\n\n{rule_text}", reply_markup=kb, parse_mode=ParseMode.HTML)
+    new_count, new_indices = shown_count + 1, shown_indices + [idx]
 
-# --- ПРОФИЛЬ ---
+    await db.update_user(user_id, rules_shown_count=new_count, rules_indices_today=new_indices)
+    user_data.update({"rules_shown_count": new_count, "rules_indices_today": new_indices})
+
+    header = t('title_rules_daily', lang, title=t('title_rules', lang), count=new_count, limit=settings.RULES_PER_DAY_LIMIT)
+    kb = get_broadcast_keyboard(lang, rule_text, "rules")
+    await message.answer(f"<b>{header}</b>\n\n{rule_text}", reply_markup=kb, parse_mode=ParseMode.HTML)
+
+# --- 📊 ПРОФИЛЬ ---
+
 async def send_profile(message: Message, user_data: dict, lang: Lang):
-    name = user_data.get('name') or message.from_user.first_name or "Пользователь"
-    status = t('status_premium', lang) if user_data.get("is_paid") else t('status_demo', lang)
-    
+    fresh_user = await db.get_user(message.from_user.id)
+    if fresh_user: user_data.update(fresh_user)
+
     challenges = user_data.get("challenges", [])
-    accepted_count = len(challenges)
     completed_count = len([c for c in challenges if isinstance(c, dict) and c.get("completed")])
     
-    streak = user_data.get("challenge_streak", 0)
-    likes = user_data.get("stats_likes", 0)
-    dislikes = user_data.get("stats_dislikes", 0)
-
     text = (
         f"👤 <b>{t('profile_title', lang)}</b>\n\n"
-        f"📛 {t('profile_name', lang)}: <b>{name}</b>\n"
-        f"💰 {t('profile_status', lang)}: <b>{status}</b>\n\n"
-        f"⚔️ {t('profile_challenges_accepted', lang)}: <b>{accepted_count}</b>\n"
-        f"✅ Выполнено челленджей: <b>{completed_count}</b>\n"
-        f"🔥 {t('profile_challenge_streak', lang)}: <b>{streak}</b>\n\n"
-        f"👍 {t('profile_likes', lang)}: <b>{likes}</b>\n"
-        f"👎 {t('profile_dislikes', lang)}: <b>{dislikes}</b>"
+        f"📛 {t('profile_name', lang)}: <b>{user_data.get('name') or message.from_user.first_name}</b>\n"
+        f"💰 {t('profile_status', lang)}: <b>{t('status_premium', lang) if user_data.get('is_paid') else t('status_demo', lang)}</b>\n\n"
+        f"⚔️ {t('profile_challenges_accepted', lang)}: <b>{len(challenges)}</b>\n"
+        f"✅ {t('profile_challenges_completed', lang)}: <b>{completed_count}</b>\n"
+        f"🔥 {t('profile_challenge_streak', lang)}: <b>{user_data.get('challenge_streak', 0)}</b>\n\n"
+        f"👍 {t('profile_likes', lang)}: <b>{user_data.get('stats_likes', 0)}</b>\n"
+        f"👎 {t('profile_dislikes', lang)}: <b>{user_data.get('stats_dislikes', 0)}</b>"
     )
     await message.answer(text, parse_mode=ParseMode.HTML)
 
-# --- ОПЛАТА И ДЕМО ---
+# --- 💳 ПЛАТЕЖИ ---
+
 async def send_payment_instructions(message: Message, user_data: dict, lang: Lang):
     kb = get_payment_keyboard(lang, is_test_user=(message.from_user.id == settings.ADMIN_CHAT_ID))
-    await message.answer(t('pay_instructions', lang, name=message.from_user.first_name), reply_markup=kb)
+    await message.answer(
+        t('pay_instructions', lang, 
+          name=message.from_user.first_name, amount=settings.PAYMENT_AMOUNT,
+          currency=settings.PAYMENT_CURRENCY, link=settings.PAYMENT_LINK),
+        reply_markup=kb
+    )
 
 async def activate_new_demo(message: Message, user_data: dict, lang: Lang):
     user_id = message.from_user.id
-    days = settings.REGULAR_DEMO_DAYS
-    expiration = (datetime.now(ZoneInfo("UTC")) + timedelta(days=days)).isoformat()
-    await db.update_user(user_id, status="active_demo", active=True, demo_expiration=expiration)
-    user_data.update({"status": "active_demo", "active": True, "demo_expiration": expiration})
-    
-    await message.answer(t('welcome_renewed_demo', lang, name=message.from_user.first_name, demo_days=days), 
-                         reply_markup=get_main_keyboard(lang, user_id=user_id))
+    config = get_demo_config(user_id)
+    expiration = (datetime.now(ZoneInfo("UTC")) + timedelta(days=config["demo"])).isoformat()
+    await db.update_user(user_id, status="active_demo", active=True, demo_expiration=expiration, demo_count=2)
+    await notify_admins(message.bot, f"🔄 <b>Демо возобновлено!</b>\n👤 {message.from_user.first_name} (ID: <code>{user_id}</code>)")
+    await message.answer(t('welcome_renewed_demo', lang, name=message.from_user.first_name, demo_days=config["demo"]), reply_markup=get_main_keyboard(lang, user_id=user_id))
 
 async def handle_expired_demo(message: Message, user_data: dict, lang: Lang):
-    await message.answer(t('demo_expired_final', lang, name=message.from_user.first_name), 
-                         reply_markup=get_payment_keyboard(lang))
+    await message.answer(t('demo_expired_final', lang, name=message.from_user.first_name), reply_markup=get_payment_keyboard(lang))

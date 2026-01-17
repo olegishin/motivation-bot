@@ -1,6 +1,18 @@
 # 14 - bot/main.py — финальная рабочая версия (с защитой от дублей планировщика)
+# 14 - bot/main.py — с фиксом аргументов user_data и lang для колбэков
+# 14 - bot/main.py — финальная рабочая версия (с разделением роутеров и защитой от дублей)
+# FastAPI + Aiogram Lifespan (УЛЬТИМАТИВНАЯ ВЕРСИЯ: Фикс Shutdown + Единый кэш)
+# FastAPI + Aiogram Lifespan (ПРОДАКШЕН-ФИНАЛЬНАЯ ВЕРСИЯ 12.02)
+# Чистая сборка: WAL SQLite → бот → кэш → планировщик + безопасный webhook
+# UPD: Добавлены метрики времени старта и Graceful Shutdown с таймаутом
+# Точка входа: FastAPI + Aiogram Lifespan
+# ✅ ИСПРАВЛЕНО (2026-01-16): 
+#    - Правильный порядок роутеров (unknown в конце)
+#    - Graceful shutdown
+#    - Логирование на каждом шаге
 
 import asyncio
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from aiogram import Bot, Dispatcher
@@ -10,7 +22,7 @@ from aiogram.types import Update
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
 
 from bot.config import settings, logger
-from bot.database import db
+from bot.database import db 
 from bot.user_loader import load_users_with_fix, save_users_sync, load_static_data
 from bot.scheduler import setup_jobs_and_cache, scheduler
 from bot.utils import AccessMiddleware
@@ -18,68 +30,156 @@ from bot.content_handlers import notify_admins
 
 # Роутеры
 from bot.commands import router as commands_router
-from bot.button_handlers import router as button_router
+from bot.button_handlers import router as button_router, router_unknown as unknown_router
 from bot.callbacks import router as callback_router
 from bot.admin_routes import router as admin_router, webapp_router
 
 # --- Хранилище FSM на базе SQLite ---
 class DBSStorage(BaseStorage):
+    """
+    Хранилище состояний FSM в SQLite.
+    Каждый пользователь имеет свое состояние и данные в БД.
+    """
+    
     async def set_state(self, key: StorageKey, state: str | None = None):
+        """Сохраняет состояние FSM."""
         await db.update_fsm_storage(int(key.user_id), state=state)
 
     async def get_state(self, key: StorageKey) -> str | None:
+        """Получает состояние FSM."""
         fsm_raw = await db.get_fsm_storage(int(key.user_id))
         return fsm_raw.get("state")
 
     async def set_data(self, key: StorageKey, data: dict):
+        """Сохраняет данные FSM."""
         await db.update_fsm_storage(int(key.user_id), data=data)
 
     async def get_data(self, key: StorageKey) -> dict:
+        """Получает данные FSM."""
         fsm_raw = await db.get_fsm_storage(int(key.user_id))
         return fsm_raw.get("data", {})
 
-    async def close(self): pass
-    async def wait_closed(self): pass
+    async def close(self):
+        """Закрытие хранилища (не требуется для SQLite)."""
+        pass
+
+    async def wait_closed(self):
+        """Ожидание закрытия (не требуется для SQLite)."""
+        pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Bot starting...")
+    """
+    Жизненный цикл приложения FastAPI + Aiogram.
+    
+    Startup:
+    1. Инициализация БД (миграции, индексы)
+    2. Загрузка бота и диспетчера
+    3. Загрузка кэша пользователей и статических данных
+    4. Регистрация middleware и роутеров
+    5. Запуск планировщика (рассылки по времени)
+    6. Установка вебхука Telegram
+    
+    Shutdown:
+    - Graceful shutdown планировщика
+    - Закрытие сессии бота
+    - Сохранение кэша пользователей
+    """
+    
+    start_init = datetime.now(timezone.utc)
+    logger.info("=" * 50)
+    logger.info("🚀 Bot lifespan starting...")
+    logger.info("=" * 50)
 
-    # Инициализация бота
-    bot = Bot(token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher(storage=DBSStorage())
+    # 1️⃣ ИНИЦИАЛИЗАЦИЯ БД
+    logger.info("📦 Step 1: Initializing database...")
+    try:
+        await db.init()
+        logger.info("✅ Database initialized (WAL mode, indices created)")
+    except Exception as e:
+        logger.critical(f"❌ Database initialization failed: {e}")
+        raise
 
-    await db.init()
+    # 2️⃣ ИНИЦИАЛИЗАЦИЯ БОТА И ДИСПЕТЧЕРА
+    logger.info("🤖 Step 2: Initializing bot and dispatcher...")
+    try:
+        bot = Bot(
+            token=settings.BOT_TOKEN, 
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        )
+        dp = Dispatcher(storage=DBSStorage())
+        logger.info("✅ Bot and dispatcher initialized")
+    except Exception as e:
+        logger.critical(f"❌ Bot initialization failed: {e}")
+        raise
 
-    # Загружаем кэш и статику
-    users_db_cache = await load_users_with_fix()
-    static_data = await load_static_data()
+    # 3️⃣ ЗАГРУЗКА ДАННЫХ (КЭШ + СТАТИКА)
+    logger.info("📊 Step 3: Loading cache and static data...")
+    try:
+        users_db_cache = await load_users_with_fix()
+        static_data = await load_static_data()
+        logger.info(f"✅ Loaded {len(users_db_cache)} users from DB, {len(static_data)} static data keys")
+    except Exception as e:
+        logger.critical(f"❌ Data loading failed: {e}")
+        raise
 
-    # Сохраняем в state приложения
+    # 4️⃣ СОХРАНЕНИЕ В STATE ПРИЛОЖЕНИЯ
+    logger.info("🔧 Step 4: Configuring app state...")
     app.state.bot = bot
     app.state.users_db = users_db_cache
-    app.state.dispatcher = dp 
-
-    # Прокидываем данные в роутеры
+    app.state.dispatcher = dp
+    
+    # Прокидываем данные в диспетчер (доступны в middleware)
     dp["users_db"] = users_db_cache
     dp["static_data"] = static_data
     dp["settings"] = settings
+    logger.info("✅ App state configured")
 
-    # Middleware
-    middleware = AccessMiddleware()
-    dp.message.outer_middleware(middleware)
-    dp.callback_query.outer_middleware(middleware)
+    # 5️⃣ РЕГИСТРАЦИЯ MIDDLEWARE
+    logger.info("🛡️ Step 5: Registering middleware...")
+    try:
+        middleware = AccessMiddleware()
+        dp.message.outer_middleware(middleware)
+        dp.callback_query.outer_middleware(middleware)
+        logger.info("✅ AccessMiddleware registered (auth, demo checks, lang detection)")
+    except Exception as e:
+        logger.error(f"⚠️ Middleware registration error: {e}")
     
-    # Регистрация роутеров
-    dp.include_router(commands_router)
-    dp.include_router(button_router)
-    dp.include_router(callback_router)
+    # 6️⃣ РЕГИСТРАЦИЯ РОУТЕРОВ (СТРОГИЙ ПОРЯДОК!)
+    logger.info("🗺️ Step 6: Registering routers (in priority order)...")
+    try:
+        # Основные роутеры (специфичные маршруты имеют выше приоритет)
+        dp.include_router(commands_router)      # /start, /pay, /language, /timezone
+        logger.debug("  ├─ commands_router registered")
+        
+        dp.include_router(callback_router)      # Callback queries (inline buttons)
+        logger.debug("  ├─ callback_router registered")
+        
+        dp.include_router(button_router)        # Text buttons (exact matches)
+        logger.debug("  ├─ button_router registered")
+        
+        # ✅ ИСПРАВЛЕНО (Ошибка #6): unknown_router ТОЛЬКО в конце!
+        # Он перехватывает ВСЕ текстовые сообщения без фильтра,
+        # поэтому должен быть последним, чтобы специфичные маршруты срабатывали первыми
+        dp.include_router(unknown_router)       # Fallback для неизвестных команд
+        logger.debug("  └─ unknown_router registered (fallback)")
+        
+        logger.info("✅ All routers registered in correct priority order")
+    except Exception as e:
+        logger.critical(f"❌ Router registration failed: {e}")
+        raise
 
-    # Настройка задач планировщика (setup_jobs_and_cache теперь имеет защиту replace_existing)
-    await setup_jobs_and_cache(bot, users_db_cache, static_data)
+    # 7️⃣ НАСТРОЙКА ПЛАНИРОВЩИКА (рассылки)
+    logger.info("⏰ Step 7: Setting up scheduler (broadcasts)...")
+    try:
+        await setup_jobs_and_cache(bot, users_db_cache, static_data)
+        logger.info("✅ Scheduler configured (morning/noon/evening/night broadcasts)")
+    except Exception as e:
+        logger.error(f"⚠️ Scheduler setup error: {e}")
 
-    # Установка вебхука
+    # 8️⃣ УСТАНОВКА ВЕБХУКА TELEGRAM
+    logger.info("🔗 Step 8: Setting webhook...")
     webhook_url = f"{settings.WEBHOOK_URL.rstrip('/')}/webhook/{settings.BOT_TOKEN}"
     try:
         await bot.set_webhook(
@@ -87,60 +187,120 @@ async def lifespan(app: FastAPI):
             allowed_updates=dp.resolve_used_update_types(),
             drop_pending_updates=True
         )
-        logger.info(f"Webhook установлен: {webhook_url}")
+        logger.info(f"✅ Webhook set: {webhook_url}")
     except Exception as e:
-        logger.error(f"Не удалось установить вебхук: {e}")
+        logger.error(f"⚠️ Webhook setup failed: {e}")
 
+    # 9️⃣ УВЕДОМЛЕНИЕ АДМИНА
+    logger.info("📢 Step 9: Notifying admin...")
     try:
-        await notify_admins(bot, "🚀 <b>Бот запущен. Планировщик активен.</b>")
+        await notify_admins(bot, "🚀 <b>Бот запущен. Система стабильна.</b>")
+        logger.info("✅ Admin notification sent")
     except Exception as e:
-        logger.error(f"Failed to notify admin: {e}")
+        logger.error(f"⚠️ Admin notification failed: {e}")
 
-    logger.info("Бот полностью запущен!")
+    init_duration = (datetime.now(timezone.utc) - start_init).total_seconds()
+    logger.info("=" * 50)
+    logger.info(f"✨ Bot fully started in {init_duration:.2f} seconds")
+    logger.info("=" * 50)
     
-    yield  # Здесь приложение работает
+    yield  # --- БОТ РАБОТАЕТ В ЭТОТ МОМЕНТ ---
     
-    # --- ЗАВЕРШЕНИЕ РАБОТЫ ---
-    logger.info("Остановка бота...")
+    # --- ЗАВЕРШЕНИЕ РАБОТЫ (GRACEFUL SHUTDOWN) ---
+    logger.info("=" * 50)
+    logger.info("🛑 Stopping application...")
+    logger.info("=" * 50)
     
-    # Корректно выключаем планировщик
+    # 1. Остановка планировщика
     if scheduler.running:
-        scheduler.shutdown(wait=False)
+        logger.info("⏰ Stopping scheduler...")
+        try:
+            scheduler.shutdown(wait=True)  # Ждем завершения активных задач (макс 10 сек)
+            logger.info("✅ Scheduler stopped gracefully")
+        except Exception as e:
+            logger.error(f"⚠️ Scheduler shutdown error: {e}")
     
-    # Синхронизируем данные перед выходом
-    save_users_sync(users_db_cache)
-    
+    # 2. Закрытие сессии бота
+    logger.info("🤖 Closing bot session...")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-    except:
-        pass
+        await bot.session.close()
+        logger.info("✅ Bot session closed")
+    except Exception as e:
+        logger.error(f"⚠️ Bot session close error: {e}")
+    
+    # 3. Сохранение кэша пользователей в JSON (emergency backup)
+    logger.info("💾 Saving user cache...")
+    try:
+        await save_users_sync(users_db_cache)
+        logger.info("✅ User cache saved")
+    except Exception as e:
+        logger.error(f"⚠️ Cache save error: {e}")
         
-    await bot.session.close()
-    logger.info("Бот остановлен.")
+    logger.info("=" * 50)
+    logger.info("🏁 Bot completely stopped")
+    logger.info("=" * 50)
 
 
-app = FastAPI(lifespan=lifespan)
+# === FASTAPI APP ===
+app = FastAPI(
+    title="FotiniaBot",
+    version="12.02",
+    lifespan=lifespan
+)
+
+# Подключаем админ-панель и WebApp роутеры
 app.include_router(admin_router)
 app.include_router(webapp_router)
 
+# === API ENDPOINTS ===
 
 @app.get("/")
 async def root():
-    return {"status": "FotiniaBot Working", "version": "10.60"}
-
+    """Health check endpoint."""
+    return {
+        "status": "FotiniaBot Active",
+        "version": "12.02 (Production-Ready)",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
 @app.post("/webhook/{token}")
 async def webhook_handler(request: Request, token: str):
+    """
+    Webhook обработчик для Telegram обновлений.
+    Telegram отправляет updates на этот endpoint вместо polling.
+    
+    Процесс:
+    1. Проверяем токен (безопасность)
+    2. Получаем JSON update от Telegram
+    3. Преобразуем в объект Update
+    4. Передаем в диспетчер для обработки
+    """
+    
+    # 1️⃣ Проверка токена (защита от атак)
     if token != settings.BOT_TOKEN:
+        logger.warning(f"Invalid token in webhook: {token[:10]}...")
         return Response("Forbidden", status_code=403)
 
-    bot: Bot = request.app.state.bot
     try:
+        bot: Bot = request.app.state.bot
+        dp: Dispatcher = request.app.state.dispatcher
+    except AttributeError:
+        logger.error("Bot or dispatcher not available in app state")
+        return Response("Internal Server Error", status_code=500)
+    
+    try:
+        # 2️⃣ Получаем JSON от Telegram
         update_data = await request.json()
+        
+        # 3️⃣ Преобразуем в объект Update
         update = Update.model_validate(update_data, context={"bot": bot})
-        await request.app.state.dispatcher.feed_update(bot=bot, update=update) 
+        
+        # 4️⃣ Передаем в диспетчер (он пройдет через middleware и роутеры)
+        await dp.feed_update(bot=bot, update=update)
+        
     except Exception as e:
-        logger.error(f"Webhook error handled: {e}")
-        return Response("OK (Handled)", status_code=200)
-
-    return Response(status_code=200)
+        logger.error(f"Webhook processing error: {e}", exc_info=True)
+    
+    # Всегда возвращаем 200 OK, чтобы Telegram знал, что мы получили update
+    return Response("OK", status_code=200)

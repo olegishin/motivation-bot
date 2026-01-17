@@ -1,4 +1,8 @@
+# 09 - bot/challenges.py
+# bot/challenges.py — УЛЬТИМАТИВНАЯ ВЕРСИЯ: Фикс лимитов и синхронизация БД
+
 import random
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from aiogram.types import Message, CallbackQuery
@@ -9,86 +13,146 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.config import logger
 from bot.localization import t, Lang
 from bot.database import db
-from bot.utils import safe_send
+from bot.utils import safe_send, get_user_tz
 from bot.keyboards import get_challenge_complete_button
+
+def _ensure_list(data: any) -> list:
+    if isinstance(data, list): return data
+    if isinstance(data, str):
+        try: return json.loads(data)
+        except: return []
+    return []
 
 async def send_new_challenge_message(event: Message | CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext, is_edit: bool = False):
     chat_id = event.from_user.id
-    today = datetime.now(ZoneInfo("UTC")).date().isoformat()
     
-    # Блокировка повторных запросов из МЕНЮ
-    if not is_edit:
-        if user_data.get("last_challenge_date") == today:
-            if user_data.get("challenge_accepted"):
-                return await safe_send(event.bot, chat_id, t('challenge_already_issued', lang, name=user_data.get("name", "Олег")))
+    # --- Idempotency Guard (Защита от дабл-клика в памяти) ---
+    if not is_edit and getattr(event, "_challenge_handled", False):
+        return
+    setattr(event, "_challenge_handled", True)
+    
+    # СТРОГО: Получаем свежие данные напрямую из БД
+    fresh_user = await db.get_user(chat_id)
+    if not fresh_user:
+        return
+
+    # 1. ОПРЕДЕЛЯЕМ ДАТУ (по поясу юзера)
+    user_tz = get_user_tz(fresh_user)
+    today_str = datetime.now(user_tz).date().isoformat()
+    last_challenge_date = str(fresh_user.get("last_challenge_date") or "")
+
+    # 2. СБРОС ПРИ СМЕНЕ ДНЯ
+    if last_challenge_date != today_str:
+        await db.update_user(chat_id, last_challenge_date=today_str, challenges_today=0, challenge_accepted=0)
+        fresh_user = await db.get_user(chat_id) 
+
+    # 3. ПРОВЕРКА: ЧЕЛЛЕНДЖ УЖЕ ПРИНЯТ?
+    if fresh_user.get("challenge_accepted"):
+        hist = _ensure_list(fresh_user.get("challenges", []))
+        if hist:
+            active_text = hist[-1].get("text", "Challenge")
+            idx = len(hist) - 1
+            text_msg = f"{t('challenge_already_issued', lang)}\n\n💪 <b>Текущий:</b>\n<i>{active_text}</i>"
+            kb = get_challenge_complete_button(lang, idx)
+            
+            if isinstance(event, CallbackQuery):
+                try: await event.message.edit_text(text_msg, reply_markup=kb, parse_mode=ParseMode.HTML)
+                except: await safe_send(event.bot, chat_id, text_msg, reply_markup=kb)
             else:
-                return await safe_send(event.bot, chat_id, t('challenge_pending_acceptance', lang, name=user_data.get("name", "Олег")))
+                await safe_send(event.bot, chat_id, text_msg, reply_markup=kb)
+            return
 
-    challenges = static_data.get("challenges", {}).get(lang, []) or static_data.get("challenges", {}).get("ru", [])
-    if not challenges: return await safe_send(event.bot, chat_id, "List empty")
+    # 4. ПРОВЕРКА ЛИМИТА (Строго 1 в день, кроме режима реролла/is_edit)
+    if not is_edit:
+        attempts = int(fresh_user.get("challenges_today", 0))
+        if attempts >= 1:
+            msg = t('challenge_already_issued', lang)
+            if isinstance(event, CallbackQuery):
+                await event.answer(msg, show_alert=True)
+            else:
+                await safe_send(event.bot, chat_id, msg)
+            return
 
-    idx = random.randrange(len(challenges))
-    item = challenges[idx]
+    # 5. ГЕНЕРАЦИЯ
+    challenges_list = static_data.get("challenges", {}).get(lang, []) or static_data.get("challenges", {}).get("ru", [])
+    if not challenges_list:
+        return await safe_send(event.bot, chat_id, "⚠️ Challenges list is empty.")
+
+    idx = random.randrange(len(challenges_list))
+    item = challenges_list[idx]
     text_raw = str(item.get("text") if isinstance(item, dict) else item)
     
-    # Имя
-    name = user_data.get("name")
-    if not name or name.lower() == "друг": name = event.from_user.first_name or "Олег"
+    name = fresh_user.get("name") or event.from_user.first_name or "Пользователь"
+    try: final_text = text_raw.format(name=name)
+    except: final_text = text_raw
+
+    # 6. КЛАВИАТУРА
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t('btn_challenge_accept', lang), callback_data=f"accept_challenge_idx:{idx}")
+    builder.button(text=t('btn_challenge_new', lang), callback_data="new_challenge")
+    builder.adjust(1)
     
-    try: text = text_raw.format(name=name)
-    except: text = text_raw
+    msg_content = t('challenge_new_day', lang, challenge_text=final_text)
 
-    kb = InlineKeyboardBuilder()
-    kb.button(text=t('btn_challenge_accept', lang), callback_data=f"accept_challenge_idx:{idx}")
-    kb.button(text=t('btn_challenge_new', lang), callback_data="new_challenge")
-
-    msg_text = t('challenge_new_day', lang, challenge_text=text)
-
+    # 7. ЗАПИСЬ В БАЗУ И ОТПРАВКА
     if is_edit and isinstance(event, CallbackQuery):
-        await event.message.edit_text(msg_text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
+        await event.message.edit_text(msg_content, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
     else:
-        await db.update_user(chat_id, last_challenge_date=today)
-        user_data["last_challenge_date"] = today
-        await event.answer(msg_text, reply_markup=kb.as_markup(), parse_mode=ParseMode.HTML)
+        new_attempts = int(fresh_user.get("challenges_today", 0)) + 1
+        await db.update_user(chat_id, last_challenge_date=today_str, challenges_today=new_attempts)
+        user_data.update({"last_challenge_date": today_str, "challenges_today": new_attempts})
+        
+        if isinstance(event, Message):
+            await event.answer(msg_content, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
+        else:
+            await event.message.answer(msg_content, reply_markup=builder.as_markup(), parse_mode=ParseMode.HTML)
 
 async def accept_challenge(query: CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext):
-    idx = int(query.data.split(":")[-1])
-    challenges = static_data.get("challenges", {}).get(lang, []) or static_data.get("challenges", {}).get("ru", [])
-    item = challenges[idx]
+    try: idx = int(query.data.split(":")[-1])
+    except: idx = 0
+        
+    fresh_user = await db.get_user(query.from_user.id)
+    challenges_list = static_data.get("challenges", {}).get(lang, []) or static_data.get("challenges", {}).get("ru", [])
+    item = challenges_list[idx] if idx < len(challenges_list) else {"text": "Challenge"}
     text_raw = str(item.get("text") if isinstance(item, dict) else item)
     
-    name = user_data.get("name")
-    if not name or name.lower() == "друг": name = query.from_user.first_name or "Олег"
-    text = text_raw.format(name=name)
+    name = fresh_user.get("name") or query.from_user.first_name or "Пользователь"
+    try: final_text = text_raw.format(name=name)
+    except: final_text = text_raw
 
-    hist = user_data.get("challenges") or []
-    hist.append({"text": text, "accepted": datetime.now(ZoneInfo("UTC")).isoformat(), "completed": None})
+    hist = _ensure_list(fresh_user.get("challenges") or [])
+    hist.append({
+        "text": final_text, 
+        "accepted": datetime.now(ZoneInfo("UTC")).isoformat(), 
+        "completed": None
+    })
     
     await db.update_user(query.from_user.id, challenges=hist, challenge_accepted=1)
     user_data.update({"challenges": hist, "challenge_accepted": 1})
 
-    # ШАГ 2: Меняем текст и ставим кнопку "Выполнено"
     await query.message.edit_text(
-        t('challenge_accepted_msg', lang, challenge_text=text), 
-        reply_markup=get_challenge_complete_button(lang, len(hist)-1), 
+        t('challenge_accepted_msg', lang, challenge_text=final_text),
+        reply_markup=get_challenge_complete_button(lang, len(hist)-1),
         parse_mode=ParseMode.HTML
     )
 
 async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):
-    idx = int(query.data.split(":")[-1])
-    hist = user_data.get("challenges")
+    try: idx = int(query.data.split(":")[-1])
+    except: return
+
+    fresh_user = await db.get_user(query.from_user.id)
+    hist = _ensure_list(fresh_user.get("challenges"))
     if hist and idx < len(hist) and not hist[idx].get("completed"):
         hist[idx]["completed"] = datetime.now(ZoneInfo("UTC")).isoformat()
-        streak = user_data.get("challenge_streak", 0) + 1
+        new_streak = int(fresh_user.get("challenge_streak", 0)) + 1
         
-        await db.update_user(query.from_user.id, challenges=hist, challenge_streak=streak, challenge_accepted=0)
-        user_data.update({"challenges": hist, "challenge_streak": streak, "challenge_accepted": 0})
+        await db.update_user(query.from_user.id, challenges=hist, challenge_streak=new_streak, challenge_accepted=0)
+        user_data.update({"challenges": hist, "challenge_streak": new_streak, "challenge_accepted": 0})
         
-        # ШАГ 3: Финальный текст без кнопок
         await query.message.edit_text(
-            f"✅ {t('challenge_completed_msg', lang)}\n\n<i>{hist[idx]['text']}</i>", 
-            reply_markup=None, 
+            f"✅ {t('challenge_completed_msg', lang)}\n\n<i>{hist[idx]['text']}</i>",
+            reply_markup=None,
             parse_mode=ParseMode.HTML
         )
     else:
-        await query.answer("Уже выполнено")
+        await query.answer(t('reaction_already_accepted', lang))
