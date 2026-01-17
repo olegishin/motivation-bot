@@ -1,5 +1,7 @@
 # Python virtual environment
 venv/
+env/
+ENV/
 
 # Fly.io configuration file (не нужно в образе)
 fly.toml
@@ -22,9 +24,36 @@ __pycache__/
 dist/
 build/
 
-# Local environment file
+# Local environment file (КРИТИЧЕСКИ ВАЖНО!)
 .env
 token_id.env
+*.env
 
 # Служебные файлы fly
 flyctl.exe
+
+# Git (не нужно в продакшене)
+.git/
+.gitignore
+.gitattributes
+
+# Тесты (если не нужны)
+tests/
+pytest.ini
+*.pytest_cache/
+
+# Документация (опционально)
+README.md
+docs/
+
+# Локальная база данных (если есть)
+fotinia.db
+*.db-shm
+*.db-wal
+
+# Резервные копии
+backup_*.json
+*.backup
+
+# НЕ ВКЛЮЧАЕМ templates/ - они НУЖНЫ в продакшене!
+# НЕ ВКЛЮЧАЕМ static/ - они НУЖНЫ в продакшене!
