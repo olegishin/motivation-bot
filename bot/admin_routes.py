@@ -24,6 +24,8 @@
 # ✅ ИСПРАВЛЕНО (2026-01-16): Путь к шаблонам (Ошибка #5)
 # FastAPI роуты для админки (JWT + TOTP Auth)
 # ✅ ИСПРАВЛЕНО (2026-01-17): Ошибка #11 — WebApp профиль защищен от несанкционированного доступа
+# FastAPI роуты для админки и WebApp профиля
+# ✅ ИСПРАВЛЕНО (2026-01-17): Критический фикс путей к шаблонам для Fly.io
 
 import secrets
 import pyotp
@@ -49,8 +51,8 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # Отдельный роутер для пользовательских WebApp (Профиль открыт для всех юзеров)
 webapp_router = APIRouter(tags=["webapp"])
 
-# --- ПУТЬ ДЛЯ ШАБЛОНОВ (FLY.IO СТАНДАРТ) ---
-# ✅ ИСПРАВЛЕНО (2026-01-16): Правильный путь к templates
+# --- ПУТЬ ДЛЯ ШАБЛОНОВ (УНИВЕРСАЛЬНОЕ РЕШЕНИЕ) ---
+# ✅ ИСПРАВЛЕНО (2026-01-17): Множественные варианты поиска шаблонов
 # Структура проекта:
 # /app/
 #   ├─ bot/
@@ -58,12 +60,40 @@ webapp_router = APIRouter(tags=["webapp"])
 #   │  ├─ admin_routes.py  ← здесь мы находимся
 #   │  └─ ...
 #   └─ templates/  ← ЗДЕСЬ шаблоны (вне bot/)
-#
-# Путь: от текущего файла ../.. (в /app/) → /templates
-templates_dir = Path(__file__).resolve().parent.parent / "templates"
+
+# Определяем возможные пути к шаблонам
+current_file = Path(__file__).resolve()
+possible_paths = [
+    current_file.parent.parent / "templates",  # /app/templates (стандарт)
+    Path("/app/templates"),  # Абсолютный путь для Fly.io
+    current_file.parent / "templates",  # /app/bot/templates (на случай если там)
+]
+
+templates_dir = None
+for path in possible_paths:
+    if path.exists() and path.is_dir():
+        templates_dir = path
+        logger.info(f"✅ Found templates directory at: {templates_dir}")
+        break
+
+if templates_dir is None:
+    # Если не нашли, используем стандартный путь и логируем предупреждение
+    templates_dir = current_file.parent.parent / "templates"
+    logger.error(f"❌ Templates directory not found! Using fallback: {templates_dir}")
+    logger.error(f"Checked paths: {[str(p) for p in possible_paths]}")
+else:
+    # Проверяем наличие необходимых файлов
+    required_templates = ["admin_login.html", "admin.html", "profile.html"]
+    for tmpl in required_templates:
+        tmpl_path = templates_dir / tmpl
+        if tmpl_path.exists():
+            logger.debug(f"  ✓ Found: {tmpl}")
+        else:
+            logger.warning(f"  ✗ Missing: {tmpl}")
+
 templates = Jinja2Templates(directory=str(templates_dir))
 
-logger.info(f"Admin routes: Loading templates from {templates_dir}")
+logger.info(f"Jinja2Templates initialized with directory: {templates_dir}")
 
 # --- JWT Константы ---
 JWT_ALGORITHM = "HS256"
