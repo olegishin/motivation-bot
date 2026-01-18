@@ -10,6 +10,16 @@
 #    - force_db=True для критичных кнопок (синхронизация данных)
 #    - Логирование для каждого события
 #    - Безопасное получение user_data
+# Обработчики кнопок Aiogram
+# ✅ ИСПРАВЛЕНО (2026-01-18): Возвращены всплывающие уведомления (answerCallbackQuery)
+# Построчная сверка: сохранена логика force_db, удален лишний функционал оплат.
+# bot/button_handlers.py
+# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
+# ✅ ИСПРАВЛЕНО (2026-01-18):
+#    - Исправлено отображение АДМИН-КНОПОК (проверка is_admin)
+#    - Возвращены всплывающие уведомления (answerCallbackQuery)
+#    - Убраны лишние текстовые ответы на лайки
+# ✅ ИСПРАВЛЕНО (2026-01-18): Добавлен callback.answer() для всплывающего окна реакций
 
 import json
 from datetime import datetime, date
@@ -120,9 +130,12 @@ async def handle_reaction_callback(callback: CallbackQuery, **kwargs):
     user_data = await _get_user_data(user_id, kwargs, force_db=False)
     
     if "dislike" in callback.data:
-        await handle_dislike(callback, user_data, lang)
+        res_key = await handle_dislike(callback, user_data, lang)
     else:
-        await handle_like(callback, user_data, lang)
+        res_key = await handle_like(callback, user_data, lang)
+
+    # ✅ ИСПРАВЛЕНО: Добавлен ответ на callback для отображения всплывающего окна
+    await callback.answer(text=t(res_key, lang) if res_key else t('rating_accepted', lang))
 
 @router.callback_query(F.data.startswith("accept_challenge"))
 async def handle_accept_challenge_callback(callback: CallbackQuery, state: FSMContext, **kwargs):
