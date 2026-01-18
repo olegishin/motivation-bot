@@ -35,6 +35,11 @@
 # 04 - bot/keyboards.py
 # ULTIMATE VERSION: Fixed persistent menu + Share logic + Admin Fix
 # ПОЛНАЯ СВЕРКА: Меню теперь всегда развернуто (is_persistent=True)
+# ULTIMATE VERSION: Fixed persistent menu + Share logic + Admin Fix
+# ✅ ИСПРАВЛЕНО (2026-01-18): 
+#    - Гарантированное отображение админ-кнопок (ID casting)
+#    - Поддержка ✅ на кнопках реакций
+#    - Синхронизация callback_data для демо-периода
 
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -68,7 +73,6 @@ def get_main_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
         KeyboardButton(text=t('btn_settings', lang))
     )
     builder.adjust(2, 2, 2)
-    # is_persistent=True — меню не сворачивается
     return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 def get_admin_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
@@ -95,7 +99,6 @@ def get_admin_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
         )
     )
     builder.adjust(2, 2, 3, 3)
-    # is_persistent=True — меню не сворачивается
     return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 def get_settings_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
@@ -107,10 +110,10 @@ def get_settings_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
     )
     builder.row(KeyboardButton(text=t('btn_back', lang)))
     builder.adjust(3, 1)
-    # is_persistent=True — меню не сворачивается
     return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 def get_reply_keyboard_for_user(chat_id: int, lang: Lang, user_data: Dict[str, Any]) -> ReplyKeyboardMarkup:
+    # ✅ FIX: Принудительное сравнение по ID (броня для админ-кнопок)
     if int(chat_id) == int(settings.ADMIN_CHAT_ID):
         return get_admin_keyboard(lang, chat_id)
 
@@ -127,7 +130,6 @@ def get_reply_keyboard_for_user(chat_id: int, lang: Lang, user_data: Dict[str, A
         builder.row(KeyboardButton(text=t('btn_settings', lang)))
         builder.row(KeyboardButton(text=t('btn_pay_premium', lang)))
         builder.adjust(1, 1, 1)
-        # is_persistent=True — меню не сворачивается
         return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
     return get_main_keyboard(lang, chat_id)
@@ -145,6 +147,7 @@ def get_lang_keyboard() -> InlineKeyboardMarkup:
 def get_broadcast_keyboard(lang: Lang, quote_text: Optional[str] = None, category: str = "default", current_reaction: Optional[str] = None, user_name: Optional[str] = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     
+    # ✅ ПОДДЕРЖКА ГАЛОЧЕК
     like_text = "👍 ✅" if current_reaction == "like" else "👍"
     dislike_text = "👎 ✅" if current_reaction == "dislike" else "👎"
 
@@ -152,7 +155,7 @@ def get_broadcast_keyboard(lang: Lang, quote_text: Optional[str] = None, categor
     builder.button(text=dislike_text, callback_data=f"reaction:dislike:{category}")
 
     if category != "challenge" and quote_text:
-        # Безопасная обрезка для Share
+        # Безопасная обрезка для Share (лимит Telegram на длину URL)
         safe_quote = quote_text[:250] + "..." if len(quote_text) > 250 else quote_text
         share_msg = t('share_text_with_quote', lang, quote=safe_quote, bot_username=settings.BOT_USERNAME, name=user_name or "")
         share_url = f"https://t.me/share/url?url=https://t.me/{settings.BOT_USERNAME}&text={quote(share_msg)}"
@@ -179,7 +182,8 @@ def get_challenge_complete_button(lang: Lang, challenge_id: int) -> InlineKeyboa
 def get_payment_keyboard(lang: Lang, is_test_user: bool = False, show_new_demo: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if show_new_demo:
-        kb.button(text=t('btn_want_demo', lang), callback_data="activate_demo")
+        # ✅ FIX: колбэк должен совпадать с btn_want_demo обработчиком
+        kb.button(text=t('btn_want_demo', lang), callback_data="btn_want_demo")
     
     kb.button(text=t('btn_pay_premium', lang), url=settings.PAYMENT_LINK) 
     

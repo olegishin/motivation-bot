@@ -19,6 +19,12 @@
 # (ФИНАЛЬНАЯ ВЕРСИЯ: Текст оплаты берет данные из конфига)
 # ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
 # Динамические ключи статистики, DRY-рефакторинг, расширенное логирование
+# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
+# ✅ ИСПРАВЛЕНО (2026-01-18): 
+#    - Первая оценка: цитирование сообщения + статистика
+#    - Повторная оценка: центральное окно alert (show_alert=True)
+#    - Убрана избыточная всплывашка при первой оценке (только цитата)
+#    - Сохранены: лимиты, синхронизация WebApp, логика Демо
 
 import random
 from datetime import datetime, timedelta
@@ -124,30 +130,60 @@ async def send_from_list(message: Message, static_data: dict, user_data: dict, l
 # --- ❤️ ЛОГИКА РЕАКЦИЙ (ОБЩАЯ) ---
 
 async def _handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang, reaction_type: str):
-    """Универсальный обработчик реакций."""
+    """
+    Универсальный обработчик реакций.
+    - Первый раз: цитирование сообщения + запись в статистику.
+    - Повторно: центральное всплывающее окно Alert (show_alert=True).
+    """
     user_id = callback.from_user.id
-    name = user_data.get("name") or callback.from_user.first_name
+    name = user_data.get("name") or callback.from_user.first_name or "Користувач"
 
-    if any("✅" in btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row):
-        await callback.answer(t('reaction_already_accepted', lang, name=name), show_alert=True)
+    # 1. Проверка на повторную оценку (по наличию ✅ в кнопках)
+    has_reaction = any(
+        "✅" in btn.text 
+        for row in (callback.message.reply_markup.inline_keyboard or []) 
+        for btn in row
+    )
+
+    if has_reaction:
+        # Повтор → Центральное окно (Alert)
+        logger.debug(f"Reaction: User {user_id} tried duplicate reaction on {callback.message.message_id}")
+        await callback.answer(
+            t('reaction_already_accepted', lang, name=name),
+            show_alert=True
+        )
         return
 
-    # Динамическое формирование ключа: stats_likes или stats_dislikes
+    # 2. ПЕРВАЯ оценка → Запись в статистику БД
     stat_key = f"stats_{reaction_type}s"
     fresh_user = await db.get_user(user_id)
     new_val = (fresh_user.get(stat_key, 0) if fresh_user else 0) + 1
     await db.update_user(user_id, **{stat_key: new_val})
+    logger.info(f"Reaction: {reaction_type} from {user_id} (+1 to {stat_key})")
 
+    # 3. Обновление клавиатуры (добавляем ✅)
     category = callback.data.split(":")[-1] if ":" in callback.data else "default"
-    new_kb = get_broadcast_keyboard(lang, callback.message.text, category, reaction_type, name)
+    new_kb = get_broadcast_keyboard(
+        lang=lang, 
+        quote_text=callback.message.text, 
+        category=category, 
+        current_reaction=reaction_type, 
+        user_name=name
+    )
 
     try:
         await callback.message.edit_reply_markup(reply_markup=new_kb)
     except Exception as e:
         if "message is not modified" not in str(e).lower():
-            logger.error(f"Reaction ({reaction_type}) update error for {user_id}: {e}")
+            logger.error(f"Reaction ({reaction_type}) KB update error: {e}")
 
-    await callback.message.reply(t('reaction_received', lang, name=name), parse_mode=ParseMode.HTML)
+    # 4. Ответ сообщением с цитированием (Reply)
+    await callback.message.reply(
+        t('reaction_received', lang, name=name),
+        parse_mode=ParseMode.HTML
+    )
+
+    # 5. Убираем "часики" (без текста, так как есть цитата в чате)
     await callback.answer()
 
 async def handle_like(callback: CallbackQuery, user_data: dict, lang: Lang):
@@ -170,7 +206,6 @@ async def send_rules(message: Message, static_data: dict, user_data: dict, lang:
     today = datetime.now(user_tz).date().isoformat()
 
     if user_data.get("last_rules_date") != today:
-        logger.info(f"Rules: Resetting daily limit for user {user_id}")
         await db.update_user(user_id, last_rules_date=today, rules_shown_count=0, rules_indices_today=[])
         user_data.update({"last_rules_date": today, "rules_shown_count": 0, "rules_indices_today": []})
 
@@ -195,7 +230,7 @@ async def send_rules(message: Message, static_data: dict, user_data: dict, lang:
     user_data.update({"rules_shown_count": new_count, "rules_indices_today": new_indices})
 
     header = t('title_rules_daily', lang, title=t('title_rules', lang), count=new_count, limit=settings.RULES_PER_DAY_LIMIT)
-    kb = get_broadcast_keyboard(lang, rule_text, "rules")
+    kb = get_broadcast_keyboard(lang, rule_text, "rules", user_name=user_data.get("name") or message.from_user.first_name)
     await message.answer(f"<b>{header}</b>\n\n{rule_text}", reply_markup=kb, parse_mode=ParseMode.HTML)
 
 # --- 📊 ПРОФИЛЬ ---
