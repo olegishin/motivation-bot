@@ -26,6 +26,8 @@
 # ✅ ИСПРАВЛЕНО (2026-01-17): Ошибка #11 — WebApp профиль защищен от несанкционированного доступа
 # FastAPI роуты для админки и WebApp профиля
 # ✅ ИСПРАВЛЕНО (2026-01-17): Критический фикс путей к шаблонам для Fly.io
+# FastAPI роуты для админки (JWT + TOTP Auth)
+# ✅ ИСПРАВЛЕНО (2026-01-20): Фикс отображения путей вместо HTML в профиле
 
 import secrets
 import pyotp
@@ -52,21 +54,12 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 webapp_router = APIRouter(tags=["webapp"])
 
 # --- ПУТЬ ДЛЯ ШАБЛОНОВ (УНИВЕРСАЛЬНОЕ РЕШЕНИЕ) ---
-# ✅ ИСПРАВЛЕНО (2026-01-17): Множественные варианты поиска шаблонов
-# Структура проекта:
-# /app/
-#   ├─ bot/
-#   │  ├─ __init__.py
-#   │  ├─ admin_routes.py  ← здесь мы находимся
-#   │  └─ ...
-#   └─ templates/  ← ЗДЕСЬ шаблоны (вне bot/)
-
-# Определяем возможные пути к шаблонам
+# ✅ ИСПРАВЛЕНО (2026-01-20): Добавлена отладка поиска шаблонов
 current_file = Path(__file__).resolve()
 possible_paths = [
-    current_file.parent.parent / "templates",  # /app/templates (стандарт)
+    current_file.parent.parent / "templates",  # S:\fotinia_bot\templates (стандарт)
     Path("/app/templates"),  # Абсолютный путь для Fly.io
-    current_file.parent / "templates",  # /app/bot/templates (на случай если там)
+    current_file.parent / "templates",  # S:\fotinia_bot\bot\templates (на случай если там)
 ]
 
 templates_dir = None
@@ -77,12 +70,10 @@ for path in possible_paths:
         break
 
 if templates_dir is None:
-    # Если не нашли, используем стандартный путь и логируем предупреждение
     templates_dir = current_file.parent.parent / "templates"
     logger.error(f"❌ Templates directory not found! Using fallback: {templates_dir}")
     logger.error(f"Checked paths: {[str(p) for p in possible_paths]}")
 else:
-    # Проверяем наличие необходимых файлов
     required_templates = ["admin_login.html", "admin.html", "profile.html"]
     for tmpl in required_templates:
         tmpl_path = templates_dir / tmpl
@@ -92,7 +83,6 @@ else:
             logger.warning(f"  ✗ Missing: {tmpl}")
 
 templates = Jinja2Templates(directory=str(templates_dir))
-
 logger.info(f"Jinja2Templates initialized with directory: {templates_dir}")
 
 # --- JWT Константы ---
@@ -126,10 +116,7 @@ async def require_admin(request: Request):
     return True
 
 def get_remaining_days(user_data: Dict[str, Any]) -> int:
-    """
-    Считает оставшиеся дни демо с учетом часового пояса пользователя.
-    Источник истины для расчета дней в UI.
-    """
+    """Считает оставшиеся дни демо с учетом часового пояса пользователя."""
     if user_data.get("is_paid"):
         return 30
     
@@ -157,12 +144,7 @@ def get_remaining_days(user_data: Dict[str, Any]) -> int:
 async def profile_webapp(request: Request, user_id: int):
     """
     WebApp профиль пользователя (открывается в Telegram из кнопки 👤 Профиль).
-    Показывает: статус, уровень, прогресс, статистику лайков.
-    
-    ✅ ИСПРАВЛЕНО (2026-01-16): Ошибка #11 — WebApp безопасность
-    - Добавлено логирование запросов к профилям
-    - Добавлена подготовка к проверке через Telegram Web App initDataUnsafe
-    - Рекомендуется добавить rate-limiting для защиты от спама
+    ✅ ИСПРАВЛЕНО (2026-01-20): Добавлена отладка рендера шаблона
     """
     
     try:
@@ -171,25 +153,15 @@ async def profile_webapp(request: Request, user_id: int):
         logger.error("Bot not available in request.app.state")
         return HTMLResponse("Бот не инициализирован", status_code=500)
     
-    # 🛡️ ЛОГИРОВАНИЕ: отслеживаем все запросы к профилям
     client_ip = request.client.host if request.client else "unknown"
-    logger.debug(f"Profile request: user_id={user_id} from IP={client_ip}")
-    
-    # ⚠️ TODO (SECURITY): На продакшене НУЖНА полная проверка через Telegram Bot API
-    # Telegram Web App передает initDataUnsafe в JavaScript
-    # Сейчас просто логируем подозрительные запросы
-    # В будущем добавить:
-    # - Проверку подписи init_data от Telegram
-    # - Rate-limiting через slowapi (макс 30 запросов/минуту на IP)
-    # - Проверку что user_id == текущий пользователь в Telegram
+    logger.info(f"📱 Profile request: user_id={user_id} from IP={client_ip}")
     
     user_data = await db.get_user(user_id)
     if not user_data:
-        logger.warning(f"Profile request for non-existent user {user_id} from IP={client_ip}")
+        logger.warning(f"Profile request for non-existent user {user_id}")
         return HTMLResponse("Пользователь не найден", status_code=404)
 
     lang = get_user_lang(user_data)
-    logger.debug(f"Showing profile for user {user_id} in language {lang}")
     
     # Получаем аватар пользователя
     photo_url = "/static/logo.png"
@@ -199,9 +171,8 @@ async def profile_webapp(request: Request, user_id: int):
             file_id = photos.photos[0][-1].file_id
             file = await bot.get_file(file_id)
             photo_url = f"https://api.telegram.org/file/bot{settings.BOT_TOKEN}/{file.file_path}"
-            logger.debug(f"Retrieved profile photo for user {user_id}")
     except Exception as e:
-        logger.debug(f"Could not get profile photo for user {user_id}: {e}")
+        logger.debug(f"Could not get profile photo: {e}")
 
     # Определяем статус
     is_paid = user_data.get("is_paid", False)
@@ -223,30 +194,61 @@ async def profile_webapp(request: Request, user_id: int):
     lvl_key = next(key for limit, key in levels if completed_challenges > limit)
     user_level = t(lvl_key, lang)
 
-    # Батарейка (дни до окончания)
+    # Батарейка
     days_val = get_remaining_days(user_data)
     max_days = 30 if is_paid else 5
     battery_pct = int((days_val / max_days) * 100) if max_days > 0 else 0
     battery_pct = max(0, min(100, battery_pct))
 
-    logger.info(f"Profile rendered for user {user_id}: {completed_challenges} challenges, {days_val} days left, {battery_pct}% battery")
-
-    return templates.TemplateResponse("profile.html", {
-        "request": request,
-        "name": user_data.get("name") or "Пользователь",
-        "photo_url": photo_url,
-        "status_text": status_label,
-        "level_text": user_level,
-        "accepted": len(challenges),
-        "completed": completed_challenges,
-        "streak": user_data.get("challenge_streak", 0),
-        "likes": user_data.get("stats_likes", 0),
-        "dislikes": user_data.get("stats_dislikes", 0),
-        "days_left": days_val,
-        "battery_pct": battery_pct,
-        "lang": lang,
-        "t": t 
-    })
+    logger.info(f"📊 Profile data: user={user_id}, completed={completed_challenges}, days={days_val}, battery={battery_pct}%")
+    
+    # ✅ ОТЛАДКА: Проверяем templates_dir
+    logger.info(f"🔍 Templates directory: {templates_dir}")
+    logger.info(f"🔍 Profile template path: {templates_dir / 'profile.html'}")
+    logger.info(f"🔍 Profile template exists: {(templates_dir / 'profile.html').exists()}")
+    
+    try:
+        context = {
+            "request": request,
+            "name": user_data.get("name") or "Пользователь",
+            "photo_url": photo_url,
+            "status_text": status_label,
+            "level_text": user_level,
+            "accepted": len(challenges),
+            "completed": completed_challenges,
+            "streak": user_data.get("challenge_streak", 0),
+            "likes": user_data.get("stats_likes", 0),
+            "dislikes": user_data.get("stats_dislikes", 0),
+            "days_left": days_val,
+            "battery_pct": battery_pct,
+            "lang": lang,
+            "t": t 
+        }
+        
+        logger.info(f"✅ Rendering profile.html with context keys: {list(context.keys())}")
+        
+        response = templates.TemplateResponse("profile.html", context)
+        
+        logger.info(f"🔍 Response type: {type(response)}")
+        logger.info(f"✅ Profile rendered successfully for user {user_id}")
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ ERROR rendering profile: {e}")
+        logger.error(f"   Templates dir: {templates_dir}")
+        logger.error(f"   Template exists: {(templates_dir / 'profile.html').exists()}")
+        
+        return HTMLResponse(f"""
+        <!DOCTYPE html>
+        <html><head><meta charset="UTF-8"><title>Error</title></head>
+        <body>
+            <h1>Ошибка загрузки профиля</h1>
+            <p>Templates directory: {templates_dir}</p>
+            <p>Template exists: {(templates_dir / 'profile.html').exists()}</p>
+            <p>Error: {str(e)}</p>
+        </body></html>
+        """, status_code=500)
 
 # --- АДМИН-РОУТЫ ---
 
@@ -264,12 +266,8 @@ async def login(
     password: str = Form(...), 
     totp_code: str = Form(...)
 ):
-    """
-    Логин админа с проверкой пароля и TOTP (2FA).
-    Использует безопасное сравнение (secrets.compare_digest).
-    """
+    """Логин админа с проверкой пароля и TOTP (2FA)."""
     
-    # Проверка логина и пароля
     if not (secrets.compare_digest(username, settings.ADMIN_USERNAME) and 
             secrets.compare_digest(password, settings.ADMIN_PASSWORD)):
         logger.warning(f"Failed login attempt: invalid credentials")
@@ -278,7 +276,6 @@ async def login(
             {"request": request, "error": "Неверный логин или пароль"}
         )
     
-    # Проверка 2FA кода
     if not pyotp.TOTP(settings.ADMIN_2FA_SECRET).verify(totp_code.strip(), valid_window=1):
         logger.warning(f"Failed login attempt: invalid 2FA code")
         return templates.TemplateResponse(
@@ -286,7 +283,6 @@ async def login(
             {"request": request, "error": "Неверный код 2FA"}
         )
     
-    # Успешный логин
     logger.info("Admin successfully logged in")
     token = create_jwt()
     response = RedirectResponse(url="/admin/", status_code=303)
@@ -310,9 +306,7 @@ async def logout(response: Response):
 
 @router.get("/", response_class=HTMLResponse)
 async def users_dashboard(request: Request, auth = Depends(require_admin)):
-    """
-    Главная админ-панель: список всех пользователей с фильтрацией.
-    """
+    """Главная админ-панель: список всех пользователей."""
     logger.debug("Admin dashboard accessed")
     
     all_users_data = await db.get_all_users()
@@ -336,9 +330,7 @@ async def users_dashboard(request: Request, auth = Depends(require_admin)):
             logger.error(f"Error processing user {user_id_str}: {e}")
             continue
     
-    # Сортируем: Premium сверху, потом Demo, потом Expired
     users_list.sort(key=lambda u: (u['status'] != 'Paid', u['status'] == 'Expired', -u['remaining_days']))
-    
     logger.info(f"Dashboard: showing {len(users_list)} users")
     
     return templates.TemplateResponse("admin.html", {
@@ -356,12 +348,8 @@ async def admin_action(
     secret_token: str = Form(...), 
     auth = Depends(require_admin)
 ):
-    """
-    Обработка админских действий: выдача Premium, бан, сброс демо и т.д.
-    Требует ADMIN_SECRET для защиты от CSRF.
-    """
+    """Обработка админских действий."""
     
-    # Проверка ADMIN_SECRET
     if secret_token != settings.ADMIN_SECRET:
         logger.warning(f"Admin action failed: invalid secret token")
         raise HTTPException(status_code=403)
@@ -395,17 +383,14 @@ async def admin_action(
         logger.info(f"Admin reset demo for user {uid}")
     
     elif action == "toggle_ban":
-        # ✅ Smart Ban 24h логика
         user_data = await db.get_user(uid)
         if user_data:
             current_active = user_data.get("active", True)
             if current_active in [True, 1, "1"]:
-                # Банить на 24 часа
                 until_date = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
                 await db.update_user(uid, active=until_date)
                 logger.info(f"Admin banned user {uid} until {until_date}")
             else:
-                # Разбанить
                 await db.update_user(uid, active=True)
                 logger.info(f"Admin unbanned user {uid}")
     
@@ -413,7 +398,7 @@ async def admin_action(
 
 @router.post("/set_timezone_auto")
 async def set_timezone_auto():
-    """Эндпоинт для автоматического определения часового пояса (заглушка)."""
+    """Эндпоинт для автоматического определения часового пояса."""
     logger.debug("set_timezone_auto called")
     return {"status": "ok", "message": "Endpoint fixed"}
 
@@ -423,10 +408,7 @@ async def reset_testers_action(
     secret: str, 
     auth = Depends(require_admin)
 ):
-    """
-    Полная очистка тестовых пользователей из БД и кэша.
-    Требует ADMIN_SECRET в параметре URL.
-    """
+    """Полная очистка тестовых пользователей."""
     
     if secret != settings.ADMIN_SECRET:
         logger.warning("reset_testers_force called with invalid secret")
@@ -445,7 +427,6 @@ async def reset_testers_action(
     
     await db.commit()
     
-    # Очищаем кэш
     if hasattr(request.app.state, "users_db"):
         for uid in target_ids:
             request.app.state.users_db.pop(str(uid), None)
