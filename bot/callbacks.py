@@ -5,6 +5,12 @@
 #    - Убран параметр is_new_user (Ошибка #2)
 #    - Исправлен full_name → name (Ошибка #1)
 #    - Логирование для отладки
+# ✅ ИСПРАВЛЕНО (2026-01-20):
+#    - Повторное нажатие на реакцию → ТОЛЬКО всплывающее окно (show_alert=True)
+#    - Убрано текстовое сообщение query.message.reply() при повторе
+# ✅ ИСПРАВЛЕНО (2026-01-23): 
+#    - Кнопки не пропадают после выбора языка
+#    - Админские кнопки показываются сразу для админа
 
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardButton
@@ -36,6 +42,10 @@ async def handle_lang_select(
     - Убран параметр is_new_user (его нет в middleware)
     - Определяем новый пользователь через user_data.get("language")
     - Исправлен full_name → name (из database.py)
+    
+    ✅ ИСПРАВЛЕНО (2026-01-23):
+    - Кнопки не пропадают после выбора языка
+    - Админские кнопки показываются сразу для админа
     """
     
     if not query.message: 
@@ -85,16 +95,21 @@ async def handle_lang_select(
 
     await query.answer(t('lang_chosen', lang))
     
-    # 3️⃣ Удаляем сообщение с кнопками выбора языка
+    # 3️⃣ 🔥 ИСПРАВЛЕНИЕ №1: НЕ УДАЛЯЕМ СООБЩЕНИЕ, а редактируем его текст
     try: 
-        await query.message.delete()
+        await query.message.edit_text(
+            t('lang_chosen', lang),
+            reply_markup=None  # Убираем только inline-кнопки выбора языка
+        )
     except TelegramBadRequest: 
+        # Если редактировать не получилось, продолжаем
         pass 
     
-    # 4️⃣ Если это был новый пользователь (с commands.py это уже маловероятно)
-    # показываем полное приветствие. Иначе просто обновляем меню.
+    # 4️⃣ 🔥 ИСПРАВЛЕНИЕ №2: СРАЗУ показываем правильные reply-кнопки
+    markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
+    
     if is_new_user: 
-        logger.info(f"Callbacks: Showing welcome message for user {chat_id}")
+        logger.info(f"Callbacks: Showing welcome message for new user {chat_id}")
         await handle_start_command(
             message=query.message, 
             static_data=static_data, 
@@ -104,14 +119,21 @@ async def handle_lang_select(
         )
     else: 
         logger.info(f"Callbacks: Updating keyboard for user {chat_id}")
-        markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
-        await bot.send_message(chat_id, t('lang_chosen', lang), reply_markup=markup)
+        # Отправляем новое сообщение с правильной клавиатурой
+        await bot.send_message(
+            chat_id, 
+            t('lang_chosen', lang), 
+            reply_markup=markup
+        )
 
 
 # --- 👍 РЕАКЦИИ (Лайки / Дизлайки) ---
 @router.callback_query(F.data.startswith("reaction:"))
 async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang, **kwargs):
-    """Обработка нажатия кнопок лайка/дизлайка."""
+    """
+    Обработка нажатия кнопок лайка/дизлайка.
+    ✅ ИСПРАВЛЕНО (2026-01-20): Повторное нажатие → ТОЛЬКО всплывающее окно
+    """
     
     user_name = user_data.get("name") or query.from_user.first_name or ""
     parts = query.data.split(":")
@@ -130,11 +152,14 @@ async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang, **k
             if share_url: 
                 break
 
-    # Если уже проголосовано — сообщаем об этом
+    # ✅ ИСПРАВЛЕНО: Если уже проголосовано → ТОЛЬКО всплывающее окно
     if len(parts) > 2 and parts[2] == "done":
-        await query.message.reply(t('reaction_already_accepted', lang, name=user_name))
-        await query.answer() 
-        return
+        logger.debug(f"Callbacks: User {query.from_user.id} tried duplicate reaction")
+        await query.answer(
+            t('reaction_already_accepted', lang, name=user_name),
+            show_alert=True  # ✅ Всплывающее окно на 2 секунды БЕЗ спама в чат
+        )
+        return  # ✅ Сразу выходим, НЕ отправляя текстовое сообщение
 
     # Получаем актуальную статистику из user_data
     new_likes = user_data.get("stats_likes", 0)
@@ -159,9 +184,9 @@ async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang, **k
     
     logger.info(f"Callbacks: User {query.from_user.id} reacted with {action}")
     
-    # Отправляем благодарность
+    # Отправляем благодарность с цитированием (только при ПЕРВОЙ оценке)
     await query.message.reply(t('reaction_received', lang, name=user_name))
-    await query.answer() 
+    await query.answer()  # Убираем "часики"
 
     # Обновляем кнопки (добавляем галочку)
     try:
