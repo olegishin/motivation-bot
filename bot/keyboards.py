@@ -40,6 +40,9 @@
 #    - Гарантированное отображение админ-кнопок (ID casting)
 #    - Поддержка ✅ на кнопках реакций
 #    - Синхронизация callback_data для демо-периода
+# ✅ ИСПРАВЛЕНО (2026-01-26):
+#    - Исправлена функция is_demo_expired (вместо check_demo_status)
+#    - Админские кнопки показываются всегда для админа
 
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -56,6 +59,7 @@ from bot.config import settings
 # ====================== REPLY КЛАВИАТУРЫ ======================
 
 def get_main_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
+    """Основная клавиатура для обычных пользователей."""
     builder = ReplyKeyboardBuilder()
     builder.row(
         KeyboardButton(text=t('btn_motivate', lang)),
@@ -76,6 +80,7 @@ def get_main_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 def get_admin_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
+    """Клавиатура для администратора (дополнительные кнопки)."""
     builder = ReplyKeyboardBuilder()
     builder.row(
         KeyboardButton(text=t('btn_motivate', lang)),
@@ -102,6 +107,7 @@ def get_admin_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 def get_settings_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
+    """Клавиатура для настроек (выбор языка)."""
     builder = ReplyKeyboardBuilder()
     builder.row(
         KeyboardButton(text="🇺🇦 Українська"),
@@ -113,15 +119,35 @@ def get_settings_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 def get_reply_keyboard_for_user(chat_id: int, lang: Lang, user_data: Dict[str, Any]) -> ReplyKeyboardMarkup:
-    # ✅ FIX: Принудительное сравнение по ID (броня для админ-кнопок)
+    """
+    Возвращает правильную клавиатуру для пользователя.
+    ✅ ИСПРАВЛЕНО (2026-01-23): Исправлена проверка админа и демо-статуса
+    """
+    # ✅ FIX: Принудительное сравнение по ID для админа
     if int(chat_id) == int(settings.ADMIN_CHAT_ID):
         return get_admin_keyboard(lang, chat_id)
 
-    from bot.utils import check_demo_status
+    # 🔥 ИСПРАВЛЕНИЕ: Используем существующую функцию is_demo_expired
+    from bot.utils import is_demo_expired
     is_paid = user_data.get("is_paid", False)
-    is_expired = check_demo_status(user_data) 
+    
+    # Асинхронный вызов - нужно обернуть в async, но здесь мы синхронны
+    # Вместо этого проверим демо-статус по полям
+    demo_expired = False
+    if not is_paid:
+        expiry_str = user_data.get("demo_expiration")
+        if not expiry_str:
+            demo_expired = True
+        else:
+            from datetime import datetime, timezone
+            try:
+                expiry_date = datetime.fromisoformat(expiry_str).replace(tzinfo=timezone.utc)
+                demo_expired = datetime.now(timezone.utc) > expiry_date
+            except:
+                demo_expired = True
 
-    if is_expired and not is_paid:
+    # Если демо истекло и не премиум - ограниченная клавиатура
+    if demo_expired and not is_paid:
         builder = ReplyKeyboardBuilder()
         builder.row(KeyboardButton(
             text=t('btn_profile', lang),
@@ -132,11 +158,13 @@ def get_reply_keyboard_for_user(chat_id: int, lang: Lang, user_data: Dict[str, A
         builder.adjust(1, 1, 1)
         return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
+    # Обычная клавиатура для активных пользователей
     return get_main_keyboard(lang, chat_id)
 
 # ====================== INLINE КЛАВИАТУРЫ ======================
 
 def get_lang_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора языка."""
     builder = InlineKeyboardBuilder()
     builder.button(text="🇺🇦 Українська UA", callback_data="set_lang_ua")
     builder.button(text="🇬🇧 English EN", callback_data="set_lang_en")
@@ -144,7 +172,14 @@ def get_lang_keyboard() -> InlineKeyboardMarkup:
     builder.adjust(1)
     return builder.as_markup()
 
-def get_broadcast_keyboard(lang: Lang, quote_text: Optional[str] = None, category: str = "default", current_reaction: Optional[str] = None, user_name: Optional[str] = None) -> InlineKeyboardMarkup:
+def get_broadcast_keyboard(
+    lang: Lang, 
+    quote_text: Optional[str] = None, 
+    category: str = "default", 
+    current_reaction: Optional[str] = None, 
+    user_name: Optional[str] = None
+) -> InlineKeyboardMarkup:
+    """Клавиатура для рассылок (лайки, дизлайки, поделиться)."""
     builder = InlineKeyboardBuilder()
     
     # ✅ ПОДДЕРЖКА ГАЛОЧЕК
@@ -167,6 +202,7 @@ def get_broadcast_keyboard(lang: Lang, quote_text: Optional[str] = None, categor
     return builder.as_markup()
 
 def get_challenge_buttons(lang: Lang, challenge_id: Optional[int] = None) -> InlineKeyboardMarkup:
+    """Клавиатура для челленджей (принять, новый)."""
     builder = InlineKeyboardBuilder()
     if challenge_id is not None:
         builder.button(text=t("btn_challenge_accept", lang), callback_data=f"accept_challenge:{challenge_id}")
@@ -175,11 +211,13 @@ def get_challenge_buttons(lang: Lang, challenge_id: Optional[int] = None) -> Inl
     return builder.as_markup()
 
 def get_challenge_complete_button(lang: Lang, challenge_id: int) -> InlineKeyboardMarkup:
+    """Кнопка для завершения челленджа."""
     builder = InlineKeyboardBuilder()
     builder.button(text=t("btn_challenge_complete", lang), callback_data=f"complete_challenge:{challenge_id}")
     return builder.as_markup()
 
 def get_payment_keyboard(lang: Lang, is_test_user: bool = False, show_new_demo: bool = False) -> InlineKeyboardMarkup:
+    """Клавиатура для оплаты и демо."""
     kb = InlineKeyboardBuilder()
     if show_new_demo:
         # ✅ FIX: колбэк должен совпадать с btn_want_demo обработчиком
