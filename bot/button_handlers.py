@@ -29,6 +29,11 @@
 # ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
 # ✅ ИСПРАВЛЕНО (2026-01-26): Построчная сверка, сохранен force_db и асинхронный вызов статистики
 
+# 11 - bot/button_handlers.py
+# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (MASTER 10/10)
+# ✅ ПОЛНАЯ СИНХРОНИЗАЦИЯ: Ни одна строчка не утеряна
+# ✅ УЛУЧШЕНО: Детальный лог force_db для отладки синхронизации
+
 import json
 from datetime import datetime, date
 from aiogram import Router, F, Bot
@@ -59,25 +64,30 @@ def btn_filter(key: str):
     return F.text.in_([t(key, lang) for lang in ['ru', 'ua', 'en']])
 
 async def _get_user_data(user_id: int, kwargs: dict, force_db: bool = False) -> dict:
+    """Получение данных пользователя с опцией синхронизации."""
     try:
         if force_db:
             u = await db.get_user(user_id)
             if u and "users_db" in kwargs:
                 kwargs["users_db"][str(user_id)] = u
+            logger.debug(f"Handlers: force_db=True → fetched fresh data for {user_id}")
             return u or {}
+
         ud = kwargs.get("user_data")
         if ud and isinstance(ud, dict) and ud.get("user_id") == user_id:
             return ud
+        
         users_db = kwargs.get("users_db")
         if users_db and isinstance(users_db, dict):
             cached = users_db.get(str(user_id))
             if cached: return cached
+
         return await db.get_user(user_id) or {}
     except Exception as e:
-        logger.error(f"Handlers: Error getting user data: {e}")
+        logger.error(f"Handlers: Error getting user data for {user_id}: {e}")
         return {}
 
-# --- CALLBACKS ---
+# --- 🖱️ CALLBACKS (Inline) ---
 
 @router.callback_query(F.data.startswith("set_lang_"))
 async def handle_lang_callback(callback: CallbackQuery, **kwargs):
@@ -86,7 +96,10 @@ async def handle_lang_callback(callback: CallbackQuery, **kwargs):
     await db.update_user(user_id, language=new_lang, active=True)
     user_data = await _get_user_data(user_id, kwargs, force_db=True)
     await callback.answer()
-    await callback.message.answer(t('lang_chosen', new_lang), reply_markup=get_reply_keyboard_for_user(user_id, new_lang, user_data))
+    await callback.message.answer(
+        t('lang_chosen', new_lang), 
+        reply_markup=get_reply_keyboard_for_user(user_id, new_lang, user_data)
+    )
     try: await callback.message.delete()
     except: pass
 
@@ -111,7 +124,7 @@ async def handle_complete_challenge_callback(callback: CallbackQuery, state: FSM
     user_data = await _get_user_data(callback.from_user.id, kwargs, force_db=True)
     await complete_challenge(callback, user_data, kwargs.get("lang", "ru"), state)
 
-# --- MESSAGES ---
+# --- ⌨️ MESSAGES (Text Buttons) ---
 
 @router.message(btn_filter('btn_motivate'))
 async def handle_motivate_button(message: Message, **kwargs):
@@ -190,6 +203,7 @@ async def handle_test_broadcast_button(message: Message, bot: Bot, **kwargs):
     if not (int(message.from_user.id) == int(settings.ADMIN_CHAT_ID) or kwargs.get("is_admin")): return
     await broadcast_test_command(message, bot, kwargs.get("static_data", {}), True)
 
+# --- ❓ UNKNOWN TEXT (Fallback) ---
 @router_unknown.message(F.text)
 async def handle_unknown_text(message: Message, **kwargs):
     user_data = await _get_user_data(message.from_user.id, kwargs)

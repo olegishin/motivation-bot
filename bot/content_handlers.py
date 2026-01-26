@@ -25,6 +25,10 @@
 #    - Повторная оценка: центральное окно alert (show_alert=True)
 #    - Убрана избыточная всплывашка при первой оценке (только цитата)
 #    - Сохранены: лимиты, синхронизация WebApp, логика Демо
+# ✅ ИСПРАВЛЕНО (2026-01-20): 
+#    - Первая оценка: цитирование сообщения + статистика
+#    - Повторная оценка: ТОЛЬКО всплывающее окно (show_alert=True) БЕЗ спама в чат
+#    - Сохранены: лимиты, синхронизация WebApp, логика Демо
 
 import random
 from datetime import datetime, timedelta
@@ -133,7 +137,7 @@ async def _handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang,
     """
     Универсальный обработчик реакций.
     - Первый раз: цитирование сообщения + запись в статистику.
-    - Повторно: центральное всплывающее окно Alert (show_alert=True).
+    - Повторно: ТОЛЬКО всплывающее окно Alert (show_alert=True) БЕЗ спама в чат.
     """
     user_id = callback.from_user.id
     name = user_data.get("name") or callback.from_user.first_name or "Користувач"
@@ -146,13 +150,13 @@ async def _handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang,
     )
 
     if has_reaction:
-        # Повтор → Центральное окно (Alert)
+        # Повтор → ТОЛЬКО всплывающее окно (Alert) - НЕ спамим чат!
         logger.debug(f"Reaction: User {user_id} tried duplicate reaction on {callback.message.message_id}")
         await callback.answer(
             t('reaction_already_accepted', lang, name=name),
-            show_alert=True
+            show_alert=True  # ✅ Всплывающее окно на 2 секунды
         )
-        return
+        return  # ✅ КРИТИЧНО: сразу выходим, НЕ отправляя текстовое сообщение в чат
 
     # 2. ПЕРВАЯ оценка → Запись в статистику БД
     stat_key = f"stats_{reaction_type}s"
@@ -177,7 +181,7 @@ async def _handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang,
         if "message is not modified" not in str(e).lower():
             logger.error(f"Reaction ({reaction_type}) KB update error: {e}")
 
-    # 4. Ответ сообщением с цитированием (Reply)
+    # 4. Ответ сообщением с цитированием (Reply) - только при ПЕРВОЙ оценке
     await callback.message.reply(
         t('reaction_received', lang, name=name),
         parse_mode=ParseMode.HTML
@@ -186,8 +190,10 @@ async def _handle_reaction(callback: CallbackQuery, user_data: dict, lang: Lang,
     # 5. Убираем "часики" (без текста, так как есть цитата в чате)
     await callback.answer()
 
+
 async def handle_like(callback: CallbackQuery, user_data: dict, lang: Lang):
     await _handle_reaction(callback, user_data, lang, "like")
+
 
 async def handle_dislike(callback: CallbackQuery, user_data: dict, lang: Lang):
     await _handle_reaction(callback, user_data, lang, "dislike")
