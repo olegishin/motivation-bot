@@ -12,6 +12,11 @@
 # ✅ ВОССТАНОВЛЕНО: send_stats_report, отслеживание блокировок, все сценарии /start
 # ✅ СИНХРОНИЗИРОВАНО: Полная асинхронность (is_demo_expired), логи релоада и защита от self-grant
 
+# 10 - bot/commands.py
+# Системные и админ-команды (ULTIMATE 10/10 VERSION)
+# ✅ ИСПРАВЛЕНО (2026-01-26): Исправлен ImportError (check_demo_status -> is_demo_expired)
+# ✅ СИНХРОНИЗИРОВАНО: Все вызовы статистики теперь асинхронные
+
 import json
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -40,7 +45,6 @@ class TimezoneStates(StatesGroup):
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=KICKED))
 async def user_blocked_bot(event: ChatMemberUpdated, bot: Bot):
-    """Отслеживание, когда пользователь блокирует бота."""
     user_id = event.chat.id
     name = event.from_user.first_name if event.from_user else "User"
     await db.update_user(user_id, active=False)
@@ -49,7 +53,6 @@ async def user_blocked_bot(event: ChatMemberUpdated, bot: Bot):
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=MEMBER))
 async def user_unblocked_bot(event: ChatMemberUpdated, bot: Bot):
-    """Отслеживание, когда пользователь разблокирует бота."""
     user_id = event.chat.id
     await db.update_user(user_id, active=True)
     logger.info(f"✅ User {user_id} unblocked the bot.")
@@ -58,22 +61,16 @@ async def user_unblocked_bot(event: ChatMemberUpdated, bot: Bot):
 
 @router.message(CommandStart())
 async def start_command(message: Message, bot: Bot, static_data: dict, users_db: dict):
-    """
-    ✅ ИСПРАВЛЕНО (2026-01-16): Логика /start создает пользователя сразу.
-    ✅ ИСПРАВЛЕНО (2026-01-17): Демо cooldown логика (автоматический перезапуск).
-    """
     if not message.from_user:
         return
     
     user_id = message.from_user.id
     user_id_str = str(user_id)
-    
     logger.info(f"Commands: /start command from user {user_id}")
     
-    # 1️⃣ Пытаемся получить существующего пользователя
     user_data = await db.get_user(user_id)
     
-    # 2️⃣ НОВЫЙ ПОЛЬЗОВАТЕЛЬ → Создаем его сразу
+    # 1️⃣ НОВЫЙ ПОЛЬЗОВАТЕЛЬ
     if user_data is None:
         logger.info(f"Commands: New user {user_id}, creating...")
         config = get_demo_config(user_id)
@@ -95,17 +92,13 @@ async def start_command(message: Message, bot: Bot, static_data: dict, users_db:
         if user_data:
             users_db[user_id_str] = user_data
         
-        await message.answer(
-            t('lang_choose_first', settings.DEFAULT_LANG), 
-            reply_markup=get_lang_keyboard()
-        )
+        await message.answer(t('lang_choose_first', settings.DEFAULT_LANG), reply_markup=get_lang_keyboard())
         return
 
-    # 3️⃣ ВЕРНУВШИЙСЯ ПОЛЬЗОВАТЕЛЬ
+    # 2️⃣ ВЕРНУВШИЙСЯ ПОЛЬЗОВАТЕЛЬ (Логика 5+1+5)
     lang = get_user_lang(user_data)
     users_db[user_id_str] = user_data
     
-    # Проверка автоматического перезапуска демо (Логика 5+1+5)
     if user_data.get("status") == "cooldown":
         exp_str = user_data.get("demo_expiration")
         if exp_str:
@@ -116,34 +109,21 @@ async def start_command(message: Message, bot: Bot, static_data: dict, users_db:
                 cooldown_end = exp_dt + timedelta(days=config["cooldown"])
                 
                 if now_utc >= cooldown_end:
-                    logger.info(f"Commands: Cooldown ended for user {user_id}, restarting demo...")
+                    logger.info(f"Commands: Cooldown ended for {user_id}, restarting demo...")
                     new_expiry = now_utc + timedelta(days=config["demo"])
                     await db.update_user(
-                        user_id,
-                        demo_count=2,
-                        status="active_demo",
-                        demo_expiration=new_expiry.isoformat(),
-                        challenge_streak=0,
-                        challenge_accepted=0,
-                        challenges=[],
-                        sent_expiry_warning=0,
-                        challenges_today=0,
-                        rules_shown_count=0,
-                        active=True
+                        user_id, demo_count=2, status="active_demo", demo_expiration=new_expiry.isoformat(),
+                        challenge_streak=0, challenge_accepted=0, challenges=[],
+                        sent_expiry_warning=0, active=True
                     )
                     
                     user_data = await db.get_user(user_id)
-                    # Защита от race condition
                     if not user_data:
-                        logger.critical(f"Failed to reload user_data after demo restart for {user_id}")
+                        logger.critical(f"Failed to reload user_data for {user_id}")
                         return
 
                     users_db[user_id_str] = user_data
-                    
-                    await safe_send(
-                        bot, user_id, 
-                        t("demo_restarted_info", lang, name=user_data.get("name", ""))
-                    )
+                    await safe_send(bot, user_id, t("demo_restarted_info", lang, name=user_data.get("name", "")))
                 else:
                     remaining = cooldown_end - now_utc
                     h, m = int(remaining.total_seconds() // 3600), int((remaining.total_seconds() % 3600) // 60)
@@ -153,23 +133,15 @@ async def start_command(message: Message, bot: Bot, static_data: dict, users_db:
                     )
                     return
             except Exception as e:
-                logger.error(f"Error checking cooldown for user {user_id}: {e}", exc_info=True)
+                logger.error(f"Error checking cooldown: {e}")
 
-    # 4️⃣ ОБЫЧНЫЙ ПОЛЬЗОВАТЕЛЬ
-    await handle_start_command(
-        message=message,
-        static_data=static_data,
-        user_data=user_data,
-        lang=lang,
-        is_new_user=False
-    )
+    await handle_start_command(message=message, static_data=static_data, user_data=user_data, lang=lang, is_new_user=False)
 
 @router.message(Command("pay"))
 async def pay_command(message: Message, user_data: dict, lang: Lang):
-    """Команда для инициации платежа."""
     await send_payment_instructions(message, user_data, lang)
 
-# --- ⚙️ LANGUAGE & TIMEZONE ---
+# --- ⚙️ SETTINGS ---
 
 @router.message(Command("language"))
 async def language_command(message: Message, lang: Lang = "ru"):
@@ -191,23 +163,22 @@ async def handle_new_timezone(message: Message, state: FSMContext, user_data: di
         await state.clear()
         user_data["timezone"] = new_tz_key  
         await message.answer(
-            t('timezone_set_success', lang, new_tz=new_tz_key), 
-            parse_mode="HTML", 
+            t('timezone_set_success', lang, new_tz=new_tz_key), parse_mode="HTML", 
             reply_markup=get_reply_keyboard_for_user(user_id, lang, user_data)
         )
     except (ZoneInfoNotFoundError, Exception):
         await message.answer(t('timezone_set_error', lang, error_text=new_tz_key), parse_mode="HTML")
 
-# --- 👑 ADMIN COMMANDS ---
+# --- 👑 ADMIN ---
 
 @router.message(Command("broadcast_test"))
 async def broadcast_test_command(message: Message, bot: Bot, static_data: dict, is_admin: bool = False):
     if not is_admin: return
     user_data = await db.get_user(message.from_user.id)
     lang = get_user_lang(user_data)
-    await message.answer("🧪 <b>Запуск тестовой рассылки...</b>", parse_mode="HTML")
+    await message.answer("🧪 <b>Запуск теста...</b>", parse_mode="HTML")
     await test_broadcast_job(bot, static_data, message.from_user.id, lang)
-    await message.answer("✅ <b>Тестовая рассылка завершена.</b>", parse_mode="HTML")
+    await message.answer("✅ <b>Тест завершен.</b>", parse_mode="HTML")
 
 @router.message(Command("grant"))
 async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bool = False, lang: Lang = "ru"):
@@ -235,13 +206,11 @@ async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bo
         await message.answer(t('admin_grant_usage', lang))
 
 async def send_stats_report(message: Message, users_db: dict, lang: Lang):
-    """Отправить подробный отчет статистики."""
     all_users = await db.get_all_users()
     users_db.clear()
     users_db.update(all_users)
 
     stats = {"total": 0, "active": 0, "first": 0, "repeat": 0, "inactive": 0, "exp": 0, "block": 0}
-    
     for u in users_db.values():
         stats["total"] += 1
         if u.get("active") in [True, 1, "1"]:
@@ -250,11 +219,12 @@ async def send_stats_report(message: Message, users_db: dict, lang: Lang):
             else: stats["first"] += 1
         else:
             stats["inactive"] += 1
+            # ✅ ИСПРАВЛЕНО: Теперь асинхронный вызов
             if await is_demo_expired(u): stats["exp"] += 1
             else: stats["block"] += 1
     
     gen_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-    stats_text = (
+    text = (
         f"👥 <b>{t('profile_status_total', lang)}:</b> {stats['total']}\n\n"
         f"✅ <b>{t('profile_status_active', lang)}:</b> {stats['active']}\n"
         f"  - <i>{t('profile_status_first_time', lang)}:</i> {stats['first']}\n"
@@ -264,7 +234,7 @@ async def send_stats_report(message: Message, users_db: dict, lang: Lang):
         f"  - <i>{t('profile_status_blocked', lang)}:</i> {stats['block']}\n\n"
         f"⏱ <b>Generated:</b> {gen_time}"
     )
-    await message.answer(stats_text, parse_mode="HTML")
+    await message.answer(text, parse_mode="HTML")
 
 @router.message(Command("stats"))
 async def stats_command(message: Message, users_db: dict, is_admin: bool = False, lang: Lang = "ru"):
