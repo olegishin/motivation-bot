@@ -1,9 +1,14 @@
 # 09 - bot/challenges.py
 # bot/challenges.py — УЛЬТИМАТИВНАЯ ВЕРСИЯ: Фикс лимитов и синхронизация БД
 
+# 09 - bot/challenges.py
+# bot/challenges.py — УЛЬТИМАТИВНАЯ ВЕРСИЯ: Фикс лимитов и синхронизация БД
+# ✅ СВЕРЕНО ПОСТРОЧНО: Сохранена вся логика Олега
+# ✅ ДОБАВЛЕНО (Этап 2): Сброс стрика при пропуске дня (Duolingo Style)
+
 import random
 import json
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -26,7 +31,7 @@ def _ensure_list(data: any) -> list:
 async def send_new_challenge_message(event: Message | CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext, is_edit: bool = False):
     chat_id = event.from_user.id
     
-    # --- Idempotency Guard (Защита от дабл-клика в памяти) ---
+    # --- Idempotency Guard ---
     if not is_edit and getattr(event, "_challenge_handled", False):
         return
     setattr(event, "_challenge_handled", True)
@@ -38,12 +43,29 @@ async def send_new_challenge_message(event: Message | CallbackQuery, static_data
 
     # 1. ОПРЕДЕЛЯЕМ ДАТУ (по поясу юзера)
     user_tz = get_user_tz(fresh_user)
-    today_str = datetime.now(user_tz).date().isoformat()
+    now_local = datetime.now(user_tz)
+    today_str = now_local.date().isoformat()
     last_challenge_date = str(fresh_user.get("last_challenge_date") or "")
 
-    # 2. СБРОС ПРИ СМЕНЕ ДНЯ
+    # 2. СБРОС ПРИ СМЕНЕ ДНЯ + ЛОГИКА СТРИКА (Duolingo Style)
     if last_challenge_date != today_str:
-        await db.update_user(chat_id, last_challenge_date=today_str, challenges_today=0, challenge_accepted=0)
+        upd_params = {
+            "last_challenge_date": today_str,
+            "challenges_today": 0,
+            "challenge_accepted": 0
+        }
+        
+        # Проверка на пропуск дня для сброса стрика
+        if last_challenge_date:
+            try:
+                last_date = date.fromisoformat(last_challenge_date)
+                today_date = now_local.date()
+                if (today_date - last_date).days > 1:
+                    logger.info(f"Streak: User {chat_id} missed a day. Streak reset.")
+                    upd_params["challenge_streak"] = 0
+            except: pass
+            
+        await db.update_user(chat_id, **upd_params)
         fresh_user = await db.get_user(chat_id) 
 
     # 3. ПРОВЕРКА: ЧЕЛЛЕНДЖ УЖЕ ПРИНЯТ?
@@ -62,7 +84,7 @@ async def send_new_challenge_message(event: Message | CallbackQuery, static_data
                 await safe_send(event.bot, chat_id, text_msg, reply_markup=kb)
             return
 
-    # 4. ПРОВЕРКА ЛИМИТА (Строго 1 в день, кроме режима реролла/is_edit)
+    # 4. ПРОВЕРКА ЛИМИТА (1 в день, кроме реролла)
     if not is_edit:
         attempts = int(fresh_user.get("challenges_today", 0))
         if attempts >= 1:
@@ -123,7 +145,7 @@ async def accept_challenge(query: CallbackQuery, static_data: dict, user_data: d
     hist = _ensure_list(fresh_user.get("challenges") or [])
     hist.append({
         "text": final_text, 
-        "accepted": datetime.now(ZoneInfo("UTC")).isoformat(), 
+        "accepted": datetime.now(timezone.utc).isoformat(), 
         "completed": None
     })
     
@@ -143,7 +165,7 @@ async def complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, 
     fresh_user = await db.get_user(query.from_user.id)
     hist = _ensure_list(fresh_user.get("challenges"))
     if hist and idx < len(hist) and not hist[idx].get("completed"):
-        hist[idx]["completed"] = datetime.now(ZoneInfo("UTC")).isoformat()
+        hist[idx]["completed"] = datetime.now(timezone.utc).isoformat()
         new_streak = int(fresh_user.get("challenge_streak", 0)) + 1
         
         await db.update_user(query.from_user.id, challenges=hist, challenge_streak=new_streak, challenge_accepted=0)
