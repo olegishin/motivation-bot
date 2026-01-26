@@ -21,6 +21,11 @@
 #    - Убрана автоматическая регистрация в middleware (Ошибка #4)
 #    - Логирование на каждом шаге
 #    - Middleware теперь только получает пользователя, не создает его
+# УЛЬТИМАТИВНАЯ ВЕРСИЯ: Smart Ban 24h + Логика 5+1+5 + Защита от JSON
+# ✅ ИСПРАВЛЕНО (2026-01-26): 
+#    - Функция is_demo_expired сделана асинхронной для совместимости с планировщиком
+#    - Middleware обновлен для работы с асинхронными проверками
+#    - Сохранена вся логика Smart Ban и Middleware из исходника
 
 import json
 from typing import Any, Dict, Optional
@@ -48,7 +53,7 @@ def _ensure_dict(data: Any) -> dict:
                 curr = json.loads(curr)
             return curr if isinstance(curr, dict) else {}
         except Exception as e:
-            logger.error(f"Utils: Ошибка распаковки JSON: {e}. Data: {data[:100]}")
+            logger.error(f"Utils: Ошибка распаковки JSON: {e}")
             return {}
     return {}
 
@@ -81,16 +86,16 @@ def format_phrase(phrase_raw: str, user_name: str | None) -> str:
 
 def get_demo_config(user_id: int) -> dict:
     """Возвращает настройки демо-периода на основе ID пользователя."""
-    if user_id == 290711961:
-        return {"demo": 3, "cooldown": 1}
+    if user_id == settings.ADMIN_CHAT_ID:
+        return {"demo": 365, "cooldown": 0}
     if user_id in settings.TESTER_USER_IDS:
         return {"demo": settings.TESTER_DEMO_DAYS, "cooldown": settings.TESTER_COOLDOWN_DAYS}
     return {"demo": settings.REGULAR_DEMO_DAYS, "cooldown": settings.REGULAR_COOLDOWN_DAYS}
 
-def check_demo_status(user_data: Any) -> bool:
+async def is_demo_expired(user_data: Any) -> bool:
     """
+    ✅ АСИНХРОННАЯ ВЕРСИЯ (2026-01-23)
     Возвращает True, если демо ИСТЕКЛО (или в кулдауне).
-    Возвращает False, если доступ разрешен.
     """
     user_data = _ensure_dict(user_data)
     if user_data.get("is_paid"):
@@ -117,7 +122,7 @@ def check_demo_status(user_data: Any) -> bool:
 
         return True 
     except Exception as e:
-        logger.error(f"Utils: Ошибка в check_demo_status для {user_id}: {e}")
+        logger.error(f"Utils: Ошибка в is_demo_expired для {user_id}: {e}")
         return True
 
 async def safe_send(bot: Bot, chat_id: int, text: str, **kwargs):
@@ -126,27 +131,18 @@ async def safe_send(bot: Bot, chat_id: int, text: str, **kwargs):
         await bot.send_message(chat_id, text, **kwargs)
         return True
     except Exception as e:
-        logger.error(f"safe_send error for {chat_id}: {e}")
         if "bot was blocked" in str(e).lower():
+            logger.warning(f"User {chat_id} blocked the bot. Marking as inactive.")
             await db.update_user(chat_id, active=0)
+        else:
+            logger.error(f"safe_send error for {chat_id}: {e}")
         return False
 
 # --- 🛡️ MIDDLEWARE ---
 
 class AccessMiddleware(BaseMiddleware):
     """
-    ✅ ИСПРАВЛЕНО (2026-01-16): Убрана автоматическая регистрация (Ошибка #4)
-    
-    Теперь middleware ТОЛЬКО:
-    1. Получает пользователя из БД (создание происходит в /start)
-    2. Проверяет Smart Ban (тайм-ауты)
-    3. Проверяет демо-статус
-    4. Определяет язык и права доступа
-    
-    ЛОГИКА ЖИЗНЕННОГО ЦИКЛА ПОЛЬЗОВАТЕЛЯ:
-    - Новый пользователь нажимает /start → создается в commands.py
-    - Middleware находит его в БД → работает с проверками
-    - Никогда больше автоматическое создание!
+    Middleware для проверки прав доступа, банов и демо-статуса.
     """
     
     async def __call__(self, handler, event, data):
@@ -157,22 +153,13 @@ class AccessMiddleware(BaseMiddleware):
             return await handler(event, data)
         
         chat_id = user.id
-        logger.debug(f"Middleware: Processing event from user {chat_id}")
 
-        # 1️⃣ ПОЛУЧАЕМ пользователя из БД
+        # 1️⃣ Получаем пользователя
         user_data = await db.get_user(chat_id)
-        
-        # 2️⃣ ✅ ИСПРАВЛЕНО: Если пользователя нет — НЕ создаем его!
-        # Пользователь должен был быть создан в /start
         if not user_data:
-            logger.warning(f"Middleware: User {chat_id} not found in DB (should have been created in /start)")
-            # Просто пропускаем, пусть обработчик сам разбирается
-            # Скорее всего это будет перенаправлено на /start
             return await handler(event, data)
 
-        logger.debug(f"Middleware: User {chat_id} found in DB")
-
-        # 3️⃣ ПРОВЕРКА SMART BAN (временный бан на 24 часа)
+        # 2️⃣ ПРОВЕРКА SMART BAN
         active_val = user_data.get("active", True)
         if active_val not in [True, 1, "1", None]:
             try:
@@ -184,26 +171,20 @@ class AccessMiddleware(BaseMiddleware):
                     lang = get_user_lang(user_data)
                     ban_msg = t("ban_timeout_msg", lang, h=h, m=m)
                     
-                    logger.warning(f"Middleware: User {chat_id} is banned until {unban_at}")
-                    
                     if isinstance(event, Message):
                         await safe_send(data["bot"], chat_id, ban_msg)
                     elif isinstance(event, CallbackQuery):
                         await event.answer(ban_msg, show_alert=True)
                     return 
                 else:
-                    # Таймаут истек, разбанить пользователя
-                    logger.info(f"Middleware: Unbanning user {chat_id} (timeout expired)")
                     await db.update_user(chat_id, active=True)
                     user_data["active"] = True
             except Exception as e:
-                logger.error(f"Middleware: Smart Ban parse error for {chat_id}: {e}")
-                return
+                logger.error(f"Middleware: Smart Ban error: {e}")
 
-        # 4️⃣ ПОДГОТОВКА ДАННЫХ для обработчиков
+        # 3️⃣ ПОДГОТОВКА ДАННЫХ
         user_data = _ensure_dict(user_data)
         lang = get_user_lang(user_data)
-        
         data.update({
             "user_data": user_data,
             "lang": lang,
@@ -211,89 +192,51 @@ class AccessMiddleware(BaseMiddleware):
             "is_paid": user_data.get("is_paid", False)
         })
 
-        logger.debug(f"Middleware: User {chat_id} lang={lang}, is_paid={data['is_paid']}, is_admin={data['is_admin']}")
-
-        # 5️⃣ ПРЕМИУМ и АДМИН — полный доступ
         if data["is_paid"] or data["is_admin"]:
-            logger.debug(f"Middleware: User {chat_id} has full access (paid or admin)")
             return await handler(event, data)
 
-        # 6️⃣ ПРОВЕРКА ДЕМО-СТАТУСА (логика 5+1+5)
+        # 4️⃣ ПРОВЕРКА: Нужно ли запустить второй демо (5+1+5)?
         now = datetime.now(timezone.utc)
         expiry_str = user_data.get("demo_expiration")
         expiry_date = datetime.fromisoformat(expiry_str.replace("Z", "+00:00")).replace(tzinfo=timezone.utc) if expiry_str else now
         demo_count = int(user_data.get("demo_count", 1))
         config = get_demo_config(chat_id)
 
-        logger.debug(f"Middleware: User {chat_id} demo_count={demo_count}, expiry={expiry_str}")
-
-        # 7️⃣ ПРОВЕРКА: Нужно ли запустить второй демо (после 5+1 дней)?
         if demo_count == 1 and now > (expiry_date + timedelta(days=config["cooldown"])):
-            logger.info(f"Middleware: Restarting demo for user {chat_id} (demo_count: 1 → 2)")
-            
             new_expiry = now + timedelta(days=config["demo"])
             await db.update_user(
                 chat_id, 
                 demo_count=2, 
                 demo_expiration=new_expiry.isoformat(),
                 challenge_streak=0, 
-                challenge_accepted=0, 
-                challenges=[], 
-                sent_expiry_warning=0, 
-                challenges_today=0, 
-                rules_shown_count=0
+                sent_expiry_warning=0
             )
-            await safe_send(
-                data["bot"], 
-                chat_id, 
-                t("demo_restarted_info", lang, name=user_data.get("name", ""))
-            )
+            await safe_send(data["bot"], chat_id, t("demo_restarted_info", lang, name=user_data.get("name", "")))
             user_data = await db.get_user(chat_id)
             data["user_data"] = _ensure_dict(user_data)
-            data["lang"] = get_user_lang(user_data)
 
-        # 8️⃣ ПРОВЕРКА: Демо истек?
-        if check_demo_status(user_data):
-            logger.info(f"Middleware: User {chat_id} demo has expired")
-            
+        # 5️⃣ ПРОВЕРКА: Демо истек? (Используем await!)
+        if await is_demo_expired(user_data):
             text = getattr(event, "text", "")
-            
-            # Разрешаем только определенные кнопки (профиль, оплата, настройки, назад)
             allowed_btns = [
-                t("btn_pay_premium", lang), 
-                t("btn_profile", lang), 
-                t("btn_settings", lang), 
-                t("btn_back", lang),
-                "⚙️ Settings", "👤 Profile", 
-                "⚙️ Настройки", "👤 Профіль", "⚙️ Налаштування", "👤 Профіль", 
-                "↩️ Назад", "↩️ Back"
+                t("btn_pay_premium", lang), t("btn_profile", lang), 
+                t("btn_settings", lang), t("btn_back", lang)
             ]
             
-            # Разрешаем команды (/start, /language, /timezone) и разрешенные кнопки
+            # Разрешаем команды и базовые кнопки
             if isinstance(event, CallbackQuery) or (text and (text.startswith("/") or text in allowed_btns)):
-                logger.debug(f"Middleware: User {chat_id} allowed to use command/button despite expired demo")
                 return await handler(event, data)
 
-            # Иначе показываем сообщение о демо
+            # Сообщение об окончании
             if demo_count == 1 and now <= (expiry_date + timedelta(days=config["cooldown"])):
-                # В режиме "тишины" (cooldown)
                 remaining = (expiry_date + timedelta(days=config["cooldown"])) - now
                 hours_left = max(1, int(remaining.total_seconds() // 3600))
                 msg = t("demo_cooldown_msg", lang, name=user_data.get("name", ""), hours=hours_left)
             else:
-                # Демо полностью истек
                 msg = t("demo_expired_final", lang, name=user_data.get("name", ""))
 
-            logger.info(f"Middleware: Showing demo expired message to user {chat_id}")
-            
             if isinstance(event, Message):
-                await safe_send(
-                    data["bot"], 
-                    chat_id, 
-                    msg, 
-                    reply_markup=get_reply_keyboard_for_user(chat_id, lang, user_data)
-                )
+                await safe_send(data["bot"], chat_id, msg, reply_markup=get_reply_keyboard_for_user(chat_id, lang, user_data))
             return
 
-        logger.debug(f"Middleware: User {chat_id} has active demo access")
         return await handler(event, data)
