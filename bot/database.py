@@ -13,6 +13,9 @@
 # ИСПРАВЛЕНО (2026-01-13): Двойное JSON кодирование + Новые индексы + Улучшенное логирование
 # Менеджер базы данных SQLite (ULTIMATE VERSION)
 # ИСПРАВЛЕНО (2026-01-16): Белый список полей + защита от неизвестных параметров
+# Менеджер базы данных SQLite (ULTIMATE VERSION)
+# ✅ СОХРАНЕНО: WAL режим, рекурсивный JSON, белый список полей
+# ✅ ПРОВЕРЕНО (2026-01-26): Полная поддержка логики челленджей и 5+1+5
 
 import aiosqlite
 import json
@@ -48,20 +51,21 @@ class Database:
             # Создаем индекс для быстрого поиска пользователя
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON users(user_id)")
             
-            # 🆕 Индекс для поиска истекающих демо-периодов
+            # Индекс для поиска истекающих демо-периодов
             await conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_demo_expiration 
                 ON users(demo_expiration, is_paid) 
                 WHERE is_paid = 0 AND demo_expiration IS NOT NULL
             """)
             
-            # 🆕 Индекс для планировщика (активные юзеры + часовой пояс)
+            # Индекс для планировщика (активные юзеры + часовой пояс)
             await conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_active_timezone 
                 ON users(active, timezone) 
                 WHERE active = 1
             """)
 
+            # Список колонок для миграции
             cols = [
                 ("timezone", "TEXT DEFAULT 'Europe/Kiev'"),
                 ("is_paid", "INTEGER DEFAULT 0"),
@@ -94,7 +98,7 @@ class Database:
             logger.info("Database initialized and migrated successfully (async).")
 
     def _safe_load(self, val: Any, depth: int = 0) -> Any:
-        """Безопасная десериализация JSON с защитой от двойного кодирования и лимитом рекурсии."""
+        """Безопасная десериализация JSON с защитой от двойного кодирования."""
         if depth > MAX_JSON_DEPTH:
             logger.warning(f"JSON recursion depth exceeded at level {depth}")
             return {}
@@ -104,7 +108,6 @@ class Database:
             return val
         try:
             data = json.loads(val)
-            # Рекурсивная проверка на случай, если JSON сохранен как строка внутри строки
             if isinstance(data, str):
                 return self._safe_load(data, depth + 1)
             return data
@@ -113,13 +116,7 @@ class Database:
             return {}
 
     async def add_user(self, user_id: int, username: Optional[str], name: str, language: str = "ru", **kwargs):
-        """
-        Добавляет пользователя или обновляет базовые данные при конфликте.
-        
-        ✅ ИСПРАВЛЕНО (2026-01-16):
-        - Не передаём неизвестные параметры в kwargs
-        - Все фильтрации происходят в update_user()
-        """
+        """Добавляет пользователя или обновляет базовые данные при конфликте."""
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute('''
                 INSERT INTO users (user_id, username, name, language)
@@ -131,7 +128,6 @@ class Database:
             ''', (user_id, username, name, language))
             await conn.commit()
         
-        # Все дополнительные поля передаём в update_user — там уже будет полная фильтрация
         if kwargs:
             await self.update_user(user_id, **kwargs)
         
@@ -152,20 +148,11 @@ class Database:
         return None
 
     async def update_user(self, user_id: int, **kwargs):
-        """
-        Обновление данных пользователя с абсолютной защитой от неизвестных колонок.
-        
-        ✅ ИСПРАВЛЕНО (2026-01-16):
-        - Белый список ВСЕХ допустимых полей
-        - Фильтрация неизвестных параметров (защита от Ошибки #1)
-        - Логирование попыток обновления неизвестных полей
-        - Безопасное преобразование JSON
-        """
-        
+        """Обновление данных с защитой от неизвестных колонок."""
         if not kwargs:
             return
         
-        # 🛡️ БЕЛЫЙ СПИСОК: Только реальные колонки из schema
+        # 🛡️ БЕЛЫЙ СПИСОК
         ALLOWED_FIELDS = {
             "username", "name", "language", "timezone", "is_paid", "status", 
             "demo_expiration", "active", "last_challenge_date", "challenge_accepted",
@@ -175,19 +162,14 @@ class Database:
             "challenges_today", "data"
         }
 
-        # JSON-поля, которые должны храниться как строки
         JSON_FIELDS = {"challenges", "rules_indices_today", "data", "fsm_data"}
-        
-        # 🛡️ ФИЛЬТРУЕМ: оставляем только разрешённые поля
         safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_FIELDS}
         
-        # 📝 ЛОГИРУЕМ, если пытались обновить неизвестные поля
         if len(kwargs) != len(safe_kwargs):
             unknown = set(kwargs.keys()) - ALLOWED_FIELDS
-            logger.warning(f"update_user: User {user_id} attempted to set unknown fields: {unknown}. Ignored.")
+            logger.warning(f"update_user: User {user_id} unknown fields ignored: {unknown}")
         
         if not safe_kwargs:
-            logger.debug(f"update_user: No valid fields to update for user {user_id}")
             return
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -198,40 +180,25 @@ class Database:
                 sql_parts.append(f"{k} = ?")
                 
                 if k in JSON_FIELDS:
-                    # Обработка JSON полей
                     if isinstance(v, str):
                         try:
-                            json.loads(v)
-                            # Валидный JSON-строка → сохраняем как есть
+                            json.loads(v) # Валидация
                             params.append(v)
-                        except (json.JSONDecodeError, TypeError):
-                            # Битая строка → исправляем на дефолт
-                            default_value = "[]" if k in {"challenges", "rules_indices_today"} else "{}"
-                            logger.warning(f"Invalid JSON string for field '{k}', replacing with {default_value}")
-                            params.append(default_value)
+                        except:
+                            params.append("[]" if k in {"challenges", "rules_indices_today"} else "{}")
                     elif isinstance(v, (dict, list)):
-                        # Словарь/список → сериализуем в JSON
                         params.append(json.dumps(v, ensure_ascii=False))
                     else:
-                        # Неожиданный тип → заменяем на безопасное значение
-                        default_value = "[]" if k in {"challenges", "rules_indices_today"} else "{}"
-                        logger.warning(f"Unexpected type {type(v)} for JSON field '{k}', replacing with {default_value}")
-                        params.append(default_value)
+                        params.append("[]" if k in {"challenges", "rules_indices_today"} else "{}")
                 else:
-                    # Обычные поля (не JSON)
                     params.append(v)
             
             params.append(user_id)
-            
-            try:
-                await conn.execute(f"UPDATE users SET {', '.join(sql_parts)} WHERE user_id = ?", params)
-                await conn.commit()
-            except Exception as e:
-                logger.exception(f"Failed to update user {user_id}: {e}")
-                raise
+            await conn.execute(f"UPDATE users SET {', '.join(sql_parts)} WHERE user_id = ?", params)
+            await conn.commit()
 
     async def get_all_users(self) -> Dict[str, Any]:
-        """Возвращает всех пользователей (словарь с ключами по user_id)."""
+        """Возвращает всех пользователей (для планировщика)."""
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = aiosqlite.Row
             async with conn.execute('SELECT * FROM users') as cursor:
@@ -247,36 +214,28 @@ class Database:
         return result
 
     async def update_fsm_storage(self, user_id: int, state: Optional[str] = None, data: Optional[dict] = None):
-        """Интеграция с FSM через update_user."""
         upd = {}
-        if state is not None:
-            upd["fsm_state"] = state
-        if data is not None:
-            upd["fsm_data"] = data
-        if upd:
-            await self.update_user(user_id, **upd)
+        if state is not None: upd["fsm_state"] = state
+        if data is not None: upd["fsm_data"] = data
+        if upd: await self.update_user(user_id, **upd)
 
     async def get_fsm_storage(self, user_id: int) -> Dict[str, Any]:
-        """Получает текущее состояние и данные FSM."""
         u = await self.get_user(user_id)
         if u:
             return {"state": u.get("fsm_state"), "data": u.get("fsm_data") or {}}
         return {"state": None, "data": {}}
 
     async def execute(self, sql: str, params: tuple = ()):
-        """Выполняет произвольный SQL запрос."""
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute(sql, params)
             await conn.commit()
 
     async def delete_user(self, user_id: int):
-        """Удаляет пользователя."""
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
             await conn.commit()
 
     async def commit(self):
-        """Заглушка для совместимости."""
         pass
 
 # Инициализация глобального экземпляра БД
