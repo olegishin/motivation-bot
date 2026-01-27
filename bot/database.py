@@ -16,6 +16,7 @@
 # Менеджер базы данных SQLite (ULTIMATE VERSION)
 # ✅ СОХРАНЕНО: WAL режим, рекурсивный JSON, белый список полей
 # ✅ ПРОВЕРЕНО (2026-01-26): Полная поддержка логики челленджей и 5+1+5
+# ✅ ДОБАВЛЕНО (2026-01-27): Поле last_level_checked для системы уровней
 
 import aiosqlite
 import json
@@ -85,7 +86,8 @@ class Database:
                 ("stats_likes", "INTEGER DEFAULT 0"),
                 ("stats_dislikes", "INTEGER DEFAULT 0"),
                 ("demo_count", "INTEGER DEFAULT 1"),
-                ("challenges_today", "INTEGER DEFAULT 0")
+                ("challenges_today", "INTEGER DEFAULT 0"),
+                ("last_level_checked", "TEXT DEFAULT 'level_0'"),  # ✅ ДОБАВЛЕНО: поле для отслеживания проверенного уровня
             ]
             
             for col, definition in cols:
@@ -159,7 +161,7 @@ class Database:
             "challenges", "challenge_streak", "fsm_state", "fsm_data",
             "last_rules_date", "rules_shown_count", "rules_indices_today",
             "sent_expiry_warning", "stats_likes", "stats_dislikes", "demo_count",
-            "challenges_today", "data"
+            "challenges_today", "data", "last_level_checked",  # ✅ ДОБАВЛЕНО: поле для уровней
         }
 
         JSON_FIELDS = {"challenges", "rules_indices_today", "data", "fsm_data"}

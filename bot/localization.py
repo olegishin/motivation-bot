@@ -11,6 +11,7 @@
 # Локализация и переводы (УЛЬТИМАТИВНАЯ ВЕРСИЯ + Smart Ban + Челленджи)
 # ПОЛНАЯ СВЕРКА: Текст призыва в "Поделиться" поставлен ПЕРВЫМ (2026-01-14)
 # ✅ ИСПРАВЛЕНО (2026-01-26): Добавлены ключи для напоминаний о челленджах (ru/ua/en)
+# ✅ ИСПРАВЛЕНО (2026-01-27): Добавлен ключ "streak_lost_missed_day" при сбросе стрика
 
 from typing import Literal, Dict
 from bot.config import settings, logger
@@ -100,6 +101,9 @@ translations: Dict[Lang, Dict[str, str]] = {
         # Напоминания о челленджах (2026-01-23)
         "challenge_pending_reminder_16": "⏰ <b>{name}</b>, ты принял челлендж, но еще не выполнил его!\n\n💪 <i>«{challenge}»</i>\n\nСделай это сегодня! Ты справишься! 🔥",
         "challenge_hour_reminder": "⏳ <b>{name}</b>, прошёл уже час с момента принятия челленджа!\n\n🎯 <i>«{challenge}»</i>\n\nНе откладывай - сделай этот шаг прямо сейчас! 💥",
+        
+        # Уведомление о сбросе стрика (2026-01-27)
+        "streak_lost_missed_day": "🔥 <b>{name}, ты пропустил день выполнения челленджа!</b>\n\nТвоя серия выполнений (стрик) из {previous_streak} дней сброшена до 0.\n\nНачинай новую серию сегодня! 💪",
         
         "unknown_command": "❓ Неизвестная команда. Пожалуйста, используйте кнопки.",
         "users_file_caption": "📂 users.json",
@@ -227,6 +231,9 @@ translations: Dict[Lang, Dict[str, str]] = {
         "challenge_pending_reminder_16": "⏰ <b>{name}</b>, ти прийняв челендж, але ще не виконав його!\n\n💪 <i>«{challenge}»</i>\n\nЗроби це сьогодні! Ти впораєшся! 🔥",
         "challenge_hour_reminder": "⏳ <b>{name}</b>, пройшла вже година з моменту прийняття челенджу!\n\n🎯 <i>«{challenge}»</i>\n\nНе відкладай - зроби цей крок прямо зараз! 💥",
         
+        # Уведомление о сбросе стрика (2026-01-27)
+        "streak_lost_missed_day": "🔥 <b>{name}, ти пропустив день виконання челенджу!</b>\n\nТвоя серія виконань (стрік) з {previous_streak} днів скинута до 0.\n\nПочинай нову серію сьогодні! 💪",
+        
         "unknown_command": "❓ Невідома команда. Будь ласка, використовуйте кнопки.",
         "users_file_caption": "📂 users.json",
         "users_file_empty": "Файл users.json ще не створений або порожній.",
@@ -350,8 +357,11 @@ translations: Dict[Lang, Dict[str, str]] = {
         "challenge_streak_3_level_1": "🔥🔥🔥 {name}, you're amazing! 3 challenges completed in a row, and Level 1 achieved. Keep up the pace, and a reward awaits you!",
         
         # Напоминания о челленджах (2026-01-23) — английский
-        "challenge_pending_reminder_16": "⏰ <b>{name}</b>, you accepted the challenge but haven't completed it yet!\n\n💪 <i>“{challenge}”</i>\n\nDo it today! You've got this! 🔥",
-        "challenge_hour_reminder": "⏳ <b>{name}</b>, it's already been an hour since you accepted the challenge!\n\n🎯 <i>“{challenge}”</i>\n\nDon't put it off — take this step right now! 💥",
+        "challenge_pending_reminder_16": "⏰ <b>{name}</b>, you accepted the challenge but haven't completed it yet!\n\n💪 <i>«{challenge}»</i>\n\nDo it today! You've got this! 🔥",
+        "challenge_hour_reminder": "⏳ <b>{name}</b>, it's already been an hour since you accepted the challenge!\n\n🎯 <i>«{challenge}»</i>\n\nDon't put it off — take this step right now! 💥",
+        
+        # Уведомление о сбросе стрика (2026-01-27)
+        "streak_lost_missed_day": "🔥 <b>{name}, you missed a challenge day!</b>\n\nYour completion streak of {previous_streak} days has been reset to 0.\n\nStart a new streak today! 💪",
         
         "unknown_command": "❓ Unknown command. Please use the buttons.",
         "users_file_caption": "📂 users.json",
