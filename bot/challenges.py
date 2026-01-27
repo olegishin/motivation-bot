@@ -1,10 +1,8 @@
 # 09 - bot/challenges.py
 # bot/challenges.py — УЛЬТИМАТИВНАЯ ВЕРСИЯ: Фикс лимитов и синхронизация БД
-
-# 09 - bot/challenges.py
-# bot/challenges.py — УЛЬТИМАТИВНАЯ ВЕРСИЯ: Фикс лимитов и синхронизация БД
 # ✅ СВЕРЕНО ПОСТРОЧНО: Сохранена вся логика Олега
 # ✅ ДОБАВЛЕНО (Этап 2): Сброс стрика при пропуске дня (Duolingo Style)
+# ✅ ДОБАВЛЕНО (2026-01-27): Уведомление о сбросе стрика при пропуске дня
 
 import random
 import json
@@ -62,10 +60,26 @@ async def send_new_challenge_message(event: Message | CallbackQuery, static_data
                 today_date = now_local.date()
                 if (today_date - last_date).days > 1:
                     logger.info(f"Streak: User {chat_id} missed a day. Streak reset.")
+                    
+                    # Сохраняем текущее значение стрика для уведомления
+                    previous_streak = fresh_user.get("challenge_streak", 0)
                     upd_params["challenge_streak"] = 0
-            except: pass
+                    
+                    await db.update_user(chat_id, **upd_params)
+                    
+                    # ✅ ДОБАВЛЕНО: Отправляем уведомление о сбросе стрика
+                    streak_lost_msg = t('streak_lost_missed_day', lang, 
+                                        name=fresh_user.get("name") or event.from_user.first_name or "друг",
+                                        previous_streak=previous_streak)
+                    await safe_send(event.bot, chat_id, streak_lost_msg, parse_mode=ParseMode.HTML)
+                else:
+                    await db.update_user(chat_id, **upd_params)
+            except Exception as e:
+                logger.error(f"Error processing streak reset for user {chat_id}: {e}")
+                await db.update_user(chat_id, **upd_params)
+        else:
+            await db.update_user(chat_id, **upd_params)
             
-        await db.update_user(chat_id, **upd_params)
         fresh_user = await db.get_user(chat_id) 
 
     # 3. ПРОВЕРКА: ЧЕЛЛЕНДЖ УЖЕ ПРИНЯТ?
