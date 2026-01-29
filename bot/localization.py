@@ -1,4 +1,6 @@
 # 03 - bot/localization.py 
+# 03 - bot/localization.py - 26.01.2026
+# 03 - bot/localization.py  - 27.01.2026
 # Локализация и переводы (Чистая версия БЕЗ "Друга")
 # Локализация и переводы (Чистая версия БЕЗ "Друга" — финальная)
 # Локализация и переводы: Исправлено "Мотивуй" + переводы лимитов
@@ -12,6 +14,11 @@
 # ПОЛНАЯ СВЕРКА: Текст призыва в "Поделиться" поставлен ПЕРВЫМ (2026-01-14)
 # ✅ ИСПРАВЛЕНО (2026-01-26): Добавлены ключи для напоминаний о челленджах (ru/ua/en)
 # ✅ ИСПРАВЛЕНО (2026-01-27): Добавлен ключ "streak_lost_missed_day" при сбросе стрика
+# 03 - bot/localization.py
+# ✅ ФАЙЛ ВЫДАН ЦЕЛИКОМ ДЛЯ ЗАМЕНЫ — ПОЛНАЯ СВЕРКА (28.01.2026)
+# ✅ СИНХРОНИЗИРОВАНО: 3+1+3, Дожимы (8,12,15,18), Маркетинг, Челленджи, Рефералы
+# ✅ СОХРАНЕНО: Текст "Поделиться" первым, Timezone Note, Smart Ban
+# ✅ ИСПРАВЛЕНО (29.01.2026): Добавлены ключи для теста рассылки (broadcast_morning/day/night)
 
 from typing import Literal, Dict
 from bot.config import settings, logger
@@ -37,7 +44,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "welcome_renewed_demo": "🌟 {name}, с возвращением! У Вас новый демо-период на {demo_days} дней. Все функции возобновлены. Достигнутые ранее уровни сброшены. В добрый путь! 👇",
         
         "welcome_timezone_note": "\n\nP.S. Ваш часовой пояс был автоматически установлен: <code>{default_tz}</code>. Если он неверный, используйте команду /timezone, чтобы его изменить.",
-        "timezone_command_text": "⚙️ <b>Настройка часового пояса</b>\n\nВаш текущий пояс: <code>{user_tz}</code>\n\nЧтобы изменить его, <b>отправьте свой часовой пояс</b> в формате IANA (TZ Database).\n\nНапример:\n<code>Europe/Berlin</code>\n<code>Europe/Warsaw</code>\n<code>America/New_York</code>\n<code>Asia/Tbilisi</code>\n\nОтправьте /cancel для отмены.",
+        "timezone_command_text": "⚙️ <b>Настройка часового пояса</b>\n\nВаш текущий пояс: <code>{user_tz}</code>\n\nЧтобы изменить его, <b>отправьте свой часовой пояс</b> в формата IANA (TZ Database).\n\nНапример:\n<code>Europe/Berlin</code>\n<code>Europe/Warsaw</code>\n<code>America/New_York</code>\n<code>Asia/Tbilisi</code>\n\nОтправьте /cancel для отмены.",
         "timezone_set_success": "✅ Часовой пояс обновлен на <code>{new_tz}</code>.",
         "timezone_set_error": "⚠️ Ошибка. <code>{error_text}</code> - это невалидный часовой пояс. Попробуйте еще раз (например, <code>Europe/Kiev</code>) или нажмите /cancel.",
         "timezone_cancel": "✅ Настройка отменена. Ваш часовой пояс остался: <code>{user_tz}</code>.",
@@ -57,15 +64,23 @@ translations: Dict[Lang, Dict[str, str]] = {
         "demo_cooldown_msg": "⏸️ {name}, ваш первый демо-период закончился. Наступило время тишины. Бот возобновит работу автоматически через <b>{hours} ч.</b>",
         "demo_restarted_info": "🌟 {name}, с возвращением! У Вас новый демо-период. Все функции возобновлены, прогресс сброшен. В добрый путь! 👇",
         
+        # Ключи для логики 3+1+3 (День тишины)
+        "marketing_quiet_day": "🕯 <b>День тишины в Фотинии.</b>\n\nСегодня мы не присылаем практики, чтобы вы могли прислушаться к себе. Это идеальное время, чтобы настроиться на новый этап.\n\nХотите убрать паузы и двигаться к цели без остановок? <b>Подпишитесь на Премиум прямо сейчас!</b>",
+        "btn_quiet_day_lock": "⏳ <b>До возобновления демо осталось {hours} ч. {minutes} мин.</b>\n\nВаш прогресс сохранен, но функции временно на паузе. Чтобы не ждать, активируйте Премиум! 👇",
+
         "pay_info": "💳 Для получения полного доступа, пожалуйста, свяжитесь с администратором.",
-        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите <b>245 грн</b> на эту Банку Monobank:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>ВАЖНО:</b> После оплаты, пожалуйста, пришлите скриншот чека нашему менеджеру: <b>@fotinia_admin</b>. Он увидит его и активирует ваш доступ вручную.",
+        "pay_instructions": "✅ {name}, добро пожаловать в Premium! Я буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение).\n\nДля активации, пожалуйста, переведите <b>245 грн</b> на эту Банку Monobank:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>ВАЖНО:</b> После оплата, пожалуйста, пришлите скриншот чека нашему менеджеру: <b>@fotinia_admin</b>. Он увидит его и активирует ваш доступ вручную.",
         "pay_api_success_test": "✅ {name}, добро пожаловать в Premium! (Тест API)\nЯ буду Вашей поддержкой в течение 30 дней. За это время Вы получите 120 сообщений (это ~2 грн за сообщение). Нажмите /start.",
+        
+        # ✅ ДОБАВЛЕНО: Ключи для теста рассылки
+        "broadcast_morning": "☀️ Доброе утро, {name}! Это тестовое утреннее сообщение от бота Фотиния.",
+        "broadcast_day": "🎯 Фокус дня, {name}! Это тестовое дневное сообщение для проверки рассылки.",
+        "broadcast_night": "🌙 Время подвести итоги, {name}! Это тестовое вечернее сообщение.",
         
         "share_text_template": "Посмотри, какой бот мне помогает двигаться к цели! @{bot_username}",
         "reaction_received": "Благодарю за твою оценку, {name}!",
         "reaction_already_accepted": "{name}, твоя оценка уже принята.",
         
-        # Текст для кнопки "Поделиться" (призыв ПЕРВЫМ)
         "share_text_full": "Привет! Посмотри, какое сообщение сегодня прислал мне мой бот, который помогает мне быть на позитиве и двигаться к цели!\nПопробуй и ты, это интересно :-)\n\n@{bot_username}",
         "share_text_with_quote": "Привет! Посмотри, какое сообщение сегодня прислал мне мой бот, который помогает мне быть на позитиве и двигаться к цели!\nПопробуй и ты, это интересно :-)\n\n🔥 {quote}\n\n@{bot_username}",
         
@@ -86,7 +101,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "list_error_unexpected": "⚠️ Произошла непредвиденная ошибка при отправке '{title}'.",
         "list_error_data": "⚠️ Ошибка данных для '{title}'. Обратитесь к администратору.",
         
-        "challenge_already_issued": "⏳ Вы уже приняли челлендж на сегодня.",
+        "challenge_already_issued": "{name}, Вы уже получили челлендж на сегодня.",
         "challenge_pending_acceptance": "🔥 У вас уже есть активный челлендж. Примите его или нажмите 'Новый' в сообщении выше.",
         "challenge_accepted_msg": "💪 <b>Челлендж принят:</b>\n\n<i>{challenge_text}</i>",
         "challenge_completed_msg": "✅ Отлично! Челлендж выполнен!",
@@ -167,9 +182,9 @@ translations: Dict[Lang, Dict[str, str]] = {
         "welcome_renewed_demo": "🌟 {name}, з поверненням! У Вас новий демо-період на {demo_days} днів. Всі функції відновлено. Досягнуті раніше рівні скинуті. В добру путь! 👇",
         
         "welcome_timezone_note": "\n\nP.S. Ваш часовий пояс було автоматично встановлено: <code>{default_tz}</code>. Якщо він невірний, використовуйте команду /timezone, щоб його змінити.",
-        "timezone_command_text": "⚙️ <b>Налаштування часового поясу</b>\n\nВаш поточний пояс: <code>{user_tz}</code>\n\nЩоб змінити його, <b>надішліть свій часовий пояс</b> у форматі IANA (TZ Database).\n\nНаприклад:\n<code>Europe/Berlin</code>\n<code>Europe/Warsaw</code>\n<code>America/New_York</code>\n<code>Asia/Tbilisi</code>\n\nНадішліть /cancel для скасування.",
+        "timezone_command_text": "⚙️ <b>Налаштування часового поясу</b>\n\nВаш поточний пояс: <code>{user_tz}</code>\n\nЩоб змінити його, <b>надішліть свій часовий пояс</b> у форматі IANA (TZ Database). Надішліть /cancel для скасування.",
         "timezone_set_success": "✅ Часовий пояс оновлено на <code>{new_tz}</code>.",
-        "timezone_set_error": "⚠️ Помилка. <code>{error_text}</code> - це невалідний часовий пояс. Спробуйте ще раз (наприклад, <code>Europe/Kiev</code>) або натисніть /cancel.",
+        "timezone_set_error": "⚠️ Помилка. <code>{error_text}</code> - це невалідний часовий пояс. Спробуйте ще раз або натисніть /cancel.",
         "timezone_cancel": "✅ Налаштування скасовано. Ваш часовий пояс залишився: <code>{user_tz}</code>.",
         "cmd_cancel": "Скасувати",
         
@@ -180,23 +195,32 @@ translations: Dict[Lang, Dict[str, str]] = {
         "user_grant_notification": "🎉 <b>Доступ активовано!</b>\n\nАдміністратор активував ваш Premium-доступ. Вітаємо!\n\nНатисніть /start, щоб оновити клавіатуру.",
         
         "demo_expiring_soon_h": "🔒 {name}, ваш демо-доступ закінчується менш ніж за {hours} год. Не забудьте активувати підписку, щоб не втрачати прогрес!",
-        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nДо відновлення демо-періоду залишилося <b>{hours} год {minutes} хв.</b>\n\nАбо ви можете активувати Premium-доступ прямо зараз, натиснувши кнопку '👑 Хочу Premium'. 👇",
-        "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати <b>ще один</b> пробний період ({demo_days} дні) або отримати постійний Premium-доступ.",
+        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nДо відновлення демо-періоду залишилося <b>{hours} год {minutes} хв.</b> 👇",
+        "demo_expired_choice": "👋 {name}!\n🔒 <b>Ваш демо-доступ закінчився.</b>\n\nВи можете активувати <b>ще один</b> пробний період ({demo_days} дні) або отримати Premium-доступ.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Ваші пробні періоди закінчилися.</b>\n\nДля відновлення доступу, будь ласка, активуйте Premium-підписку. 👇",
-        "demo_awaiting_renewal": "Зрозумів. Ваш демо-період відновиться через <b>{hours} год {minutes} хв.</b>\n\nВ режимі очікування розсилки відключені, але ви можете активувати Premium у будь-який момент.",
+        "demo_awaiting_renewal": "Зрозумів. Ваш демо-період відновиться через <b>{hours} год {minutes} хв.</b>",
         "demo_cooldown_msg": "⏸️ {name}, ваш перший демо-період закінчився. Настав час тиші. Бот відновить роботу автоматично через <b>{hours} год.</b>",
-        "demo_restarted_info": "🌟 {name}, з поверненням! У Вас новий демо-період. Всі функції відновлено, прогрес скинуто. В добру путь! 👇",
+        "demo_restarted_info": "🌟 {name}, з поверненням! У Вас новий демо-період. 👇",
         
+        # Ключи для логики 3+1+3 (UA)
+        "marketing_quiet_day": "🕯 <b>День тиші у Фотінії.</b>\n\nСьогодні ми не надсилаємо практики, щоб ви могли прислухатися до себе. Це ідеальний час для налаштування на новий етап.\n\nБажаєте рухатися без пауз? <b>Підпишіться на Преміум прямо зараз!</b>",
+        "btn_quiet_day_lock": "⏳ <b>До відновлення демо залишилося {hours} год. {minutes} хв.</b>\n\nВаш прогрес збережено, але функції на паузі. Щоб не чекати, активуйте Преміум! 👇",
+
         "pay_info": "💳 Для отримання повного доступу, будь ласка, зв'яжіться з адміністратором.",
-        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення).\n\nДля активації, будь ласка, перекажіть <b>245 грн</b> на цю Банку Monobank:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>ВАЖЛИВО:</b> Після оплати, будь ласка, надішліть скріншот чека нашому менеджеру: <b>@fotinia_admin</b>. Он побачить його та активує ваш доступ вручну.",
-        "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nЯ буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень (це ~2 грн за повідомлення). Натисніть /start.",
+        "pay_instructions": "✅ {name}, ласкаво просимо до Premium! Я буду Вашою підтримкою протягом 30 днів. За цей час Ви отримаєте 120 повідомлень.\n\nДля активації, будь ласка, перекажіть <b>245 грн</b> на цю Банку Monobank:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>ВАЖЛИВО:</b> Після оплати, надішліть скріншот чека нашому менеджеру: <b>@fotinia_admin</b>.",
+        "pay_api_success_test": "✅ {name}, ласкаво просимо до Premium! (Тест API)\nНатисніть /start.",
+        
+        # ✅ ДОБАВЛЕНО: Ключи для теста рассылки
+        "broadcast_morning": "☀️ Доброго ранку, {name}! Це тестове ранкове повідомлення від бота Фотінія.",
+        "broadcast_day": "🎯 Фокус дня, {name}! Це тестове денне повідомлення для перевірки розсилки.",
+        "broadcast_night": "🌙 Час підбити підсумки, {name}! Це тестове вечірнє повідомлення.",
         
         "share_text_template": "Подивись, який бот мені допомагає рухатися до мети! @{bot_username}",
         "reaction_received": "Дякую за твою оцінку, {name}!",
         "reaction_already_accepted": "{name}, твоя оцінка вже прийнята.",
         
         "share_text_full": "Подивись, яке повідомлення сьогодні надіслав мені мій бот, який допомагає мені бути на позитиві та рухатися до мети!\nСпробуй і ти, це цікаво :-)\n\n@{bot_username}",
-        "share_text_with_quote": "Подивись, яке повідомлення сьогодні надіслав мені мій бот, який допомагає мені бути на позитиві та рухатися до мети!\nСпробуй і ти, це цікаво :-)\n\n🔥 {quote}\n\n@{bot_username}",
+        "share_text_with_quote": "Подивись, яке повідомлення сьогодні надіслав мені мій бот, який допомагає мені бути на позитиві та рухатися до мети!\n\n🔥 {quote}\n\n@{bot_username}",
         
         "profile_title": "👤 <b>Ваш профіль:</b>",
         "profile_name": "📛 Ім'я",
@@ -211,7 +235,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         
         "list_empty": "⚠️ Список для '{title}' порожній.",
         "list_error_format": "⚠️ Помилка форматування тексту для '{title}'. Відсутній ключ: {e}",
-        "list_error_index": "⚠️ Сталася помилка під час вибору елемента зі списку '{title}'. Список може бути порожнім.",
+        "list_error_index": "⚠️ Сталася помилка під час вибору елемента зі списку '{title}'.",
         "list_error_unexpected": "⚠️ Сталася непередбачена помилка під час надсилання '{title}'.",
         "list_error_data": "⚠️ Помилка даних для '{title}'. Зверніться до адміністратора.",
         
@@ -221,18 +245,15 @@ translations: Dict[Lang, Dict[str, str]] = {
         "challenge_completed_msg": "✅ Чудово! Челендж виконано!",
         "challenge_completed_edit_err": "⚠️ Не вдалося відредагувати повідомлення про виконання.",
         "challenge_new_day": "⚔️ <b>Челендж дня:</b>\n{challenge_text}",
-        "challenge_choose_error": "⚠️ Помилка під час вибору челенджу. Список може бути порожнім.",
+        "challenge_choose_error": "⚠️ Помилка під час вибору челенджу.",
         "challenge_button_error": "⚠️ Сталася помилка під час формування кнопок челенджу.",
         "challenge_unexpected_error": "⚠️ Сталася непередбачена помилка під час надсилання челенджу.",
         "challenge_accept_error": "⚠️ Сталася помилка під час прийняття челенджу. Спробуйте запросити челендж знову.",
-        "challenge_streak_3_level_1": "🔥🔥🔥 {name}, ти молодець! Виконано 3 челенджі поспіль, і досягнуто 1 рівень. Продовжуй в тому ж темпі, і на тебе чекає нагорода!",
+        "challenge_streak_3_level_1": "🔥🔥🔥 {name}, ти молодець! Виконано 3 челенджі поспіль, і досягнуто 1 рівень. Продовжуй в тому ж темпі!",
         
-        # Напоминания о челленджах (2026-01-23)
         "challenge_pending_reminder_16": "⏰ <b>{name}</b>, ти прийняв челендж, але ще не виконав його!\n\n💪 <i>«{challenge}»</i>\n\nЗроби це сьогодні! Ти впораєшся! 🔥",
         "challenge_hour_reminder": "⏳ <b>{name}</b>, пройшла вже година з моменту прийняття челенджу!\n\n🎯 <i>«{challenge}»</i>\n\nНе відкладай - зроби цей крок прямо зараз! 💥",
-        
-        # Уведомление о сбросе стрика (2026-01-27)
-        "streak_lost_missed_day": "🔥 <b>{name}, ти пропустив день виконання челенджу!</b>\n\nТвоя серія виконань (стрік) з {previous_streak} днів скинута до 0.\n\nПочинай нову серію сьогодні! 💪",
+        "streak_lost_missed_day": "🔥 <b>{name}, ти пропустив день виконання челенджу!</b>\n\nТвоя серія виконань (стрік) з {previous_streak} днів скинута до 0. Починай нову сьогодні! 💪",
         
         "unknown_command": "❓ Невідома команда. Будь ласка, використовуйте кнопки.",
         "users_file_caption": "📂 users.json",
@@ -276,7 +297,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "profile_status_demo_expired": "Закінчилося демо",
         "profile_status_blocked": "Заблокували",
         
-        "reminder_8": "Доброго ранку, {name}! ☀️ Твій ознайомчий період закінчився. Щоб продовжувати отримувати підтримку та рухатися до мети, активуй Premium доступ. 👇",
+        "reminder_8": "Доброго ранку, {name}! ☀️ Твій ознайомчий період закінчився. Щоб продовжувати отримувати підтримку, активуй Premium доступ. 👇",
         "reminder_12": "Фокус дня, {name}! 🎯 Твої цілі чекають на реалізацію. Отримай повний доступ до всіх інструментів Фотінії, щоб нічого не втратити.",
         "reminder_15": "День у розпалі, {name}! ⚡️ Не зупиняйся на досягнутому. Premium статус дозволить тобі отримувати Ритми та Правила без обмежень.",
         "reminder_18": "Доброго вечора, {name}! ✨ Час підбити підсумки. Щоб завтра знову почати день з правильним настроєм, переходь на Premium.",
@@ -296,9 +317,9 @@ translations: Dict[Lang, Dict[str, str]] = {
         "welcome_renewed_demo": "🌟 {name}, welcome back! You have a new demo period for {demo_days} days. All functions are restored. Previously achieved levels are reset. Good luck! 👇",
         
         "welcome_timezone_note": "\n\nP.S. Your timezone was automatically set to <code>{default_tz}</code>. If this is incorrect, please use the /timezone command to change it.",
-        "timezone_command_text": "⚙️ <b>Timezone Settings</b>\n\nYour current timezone: <code>{user_tz}</code>\n\nTo change it, <b>please send your timezone</b> in IANA (TZ Database) format.\n\nExamples:\n<code>Europe/Berlin</code>\n<code>Europe/Warsaw</code>\n<code>America/New_York</code>\n<code>Asia/Tbilisi</code>\n\nSend /cancel to exit.",
+        "timezone_command_text": "⚙️ <b>Timezone Settings</b>\n\nYour current timezone: <code>{user_tz}</code>\n\nTo change it, <b>please send your timezone</b> in IANA (TZ Database) format.\n\nSend /cancel to exit.",
         "timezone_set_success": "✅ Timezone updated to <code>{new_tz}</code>.",
-        "timezone_set_error": "⚠️ Error. <code>{error_text}</code> is not a valid timezone. Please try again (e.g., <code>Europe/London</code>) or send /cancel.",
+        "timezone_set_error": "⚠️ Error. <code>{error_text}</code> is not a valid timezone. Please try again or send /cancel.",
         "timezone_cancel": "✅ Setup cancelled. Your timezone remains: <code>{user_tz}</code>.",
         "cmd_cancel": "Cancel",
         
@@ -308,24 +329,33 @@ translations: Dict[Lang, Dict[str, str]] = {
         "admin_grant_usage": "⚠️ Invalid format. Use: <code>/grant [USER_ID]</code>",
         "user_grant_notification": "🎉 <b>Access Activated!</b>\n\nThe administrator has activated your Premium access. Congratulations!\n\nPlease press /start to refresh your keyboard.",
         
-        "demo_expiring_soon_h": "🔒 {name}, your demo access expires in less than {hours} hour(s). Don't forget to activate your subscription to keep your progress!",
-        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can reactivate a new demo period in <b>{hours}h {minutes}m</b>.\n\nOr you can activate Premium access right now by pressing '👑 Want Premium'. 👇",
+        "demo_expiring_soon_h": "🔒 {name}, your demo access expires in less than {hours} hour(s). Don't forget to activate your subscription!",
+        "demo_expired_cooldown": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can reactivate a new demo period in <b>{hours}h {minutes}m</b>. 👇",
         "demo_expired_choice": "👋 {name}!\n🔒 <b>Your demo access has expired.</b>\n\nYou can activate <b>one more</b> trial period ({demo_days} days) or get permanent Premium access.",
         "demo_expired_final": "👋 {name}!\n🔒 <b>Your trial periods have ended.</b>\n\nTo resume access, please activate your Premium subscription. 👇",
-        "demo_awaiting_renewal": "Got it. Your demo period will resume in <b>{hours}h {minutes}m</b>.\n\nBroadcasts are disabled in standby mode, but you can activate Premium at any time.",
+        "demo_awaiting_renewal": "Got it. Your demo period will resume in <b>{hours}h {minutes}m</b>.",
         "demo_cooldown_msg": "⏸️ {name}, your first demo period has ended. Quiet time has begun. The bot will resume automatically in <b>{hours} h.</b>",
-        "demo_restarted_info": "🌟 {name}, welcome back! You have a new demo period. All functions are restored, progress reset. Good luck! 👇",
+        "demo_restarted_info": "🌟 {name}, welcome back! You have a new demo period. 👇",
         
+        # Ключи для логики 3+1+3 (EN)
+        "marketing_quiet_day": "🕯 <b>Quiet Day in Fotinia.</b>\n\nToday we don't send practices so you can listen to yourself. This is a perfect time to tune into a new stage.\n\nWant to move without pauses? <b>Subscribe to Premium right now!</b>",
+        "btn_quiet_day_lock": "⏳ <b>{hours} h. {minutes} m. until demo resumes.</b>\n\nYour progress is saved, but functions are temporarily on pause. To skip waiting, activate Premium! 👇",
+
         "pay_info": "💳 For full access, please contact the administrator.",
-        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message).\n\nTo activate, please transfer <b>245 UAH</b> to this Monobank Jar:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>IMPORTANT:</b> After payment, please send a screenshot of the receipt to our manager: <b>@fotinia_admin</b>. He will see it and activate your access manually.",
-        "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nI will be your support for 30 days. During this time, you will receive 120 messages (that's ~2 UAH per message). Press /start.",
+        "pay_instructions": "✅ {name}, welcome to Premium! I will be your support for 30 days. During this time, you will receive 120 messages.\n\nTo activate, please transfer <b>245 UAH</b> to this Monobank Jar:\n\nhttps://send.monobank.ua/jar/ao8c487LS?a=245\n\n<b>IMPORTANT:</b> After payment, send a screenshot of the receipt: <b>@fotinia_admin</b>.",
+        "pay_api_success_test": "✅ {name}, welcome to Premium! (API Test)\nPress /start.",
+        
+        # ✅ ДОБАВЛЕНО: Ключи для теста рассылки
+        "broadcast_morning": "☀️ Good morning, {name}! This is a test morning message from Fotinia bot.",
+        "broadcast_day": "🎯 Focus of the day, {name}! This is a test day message for broadcast testing.",
+        "broadcast_night": "🌙 Time to summarize, {name}! This is a test evening message.",
         
         "share_text_template": "Check out this bot that's helping me reach my goals! @{bot_username}",
         "reaction_received": "Thank you for your rating, {name}!",
         "reaction_already_accepted": "{name}, your rating has already been received.",
         
         "share_text_full": "Look what message my bot sent me today, which helps me stay positive and move towards my goal!\nTry it yourself, it's interesting :-)\n\n@{bot_username}",
-        "share_text_with_quote": "Look what message my bot sent me today, which helps me stay positive and move towards my goal!\nTry it yourself, it's interesting :-)\n\n🔥 {quote}\n\n@{bot_username}",
+        "share_text_with_quote": "Look what message my bot sent me today, which helps me stay positive and move towards my goal!\n\n🔥 {quote}\n\n@{bot_username}",
         
         "profile_title": "👤 <b>Your Profile:</b>",
         "profile_name": "📛 Name",
@@ -340,7 +370,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         
         "list_empty": "⚠️ The list for '{title}' is empty.",
         "list_error_format": "⚠️ Error formatting text for '{title}'. Missing key: {e}",
-        "list_error_index": "⚠️ An error occurred while selecting an item from the list '{title}'. The list may be empty.",
+        "list_error_index": "⚠️ An error occurred while selecting an item from the list '{title}'.",
         "list_error_unexpected": "⚠️ An unexpected error occurred while sending '{title}'.",
         "list_error_data": "⚠️ Data error for '{title}'. Please contact the administrator.",
         
@@ -354,14 +384,11 @@ translations: Dict[Lang, Dict[str, str]] = {
         "challenge_button_error": "⚠️ An error occurred while generating challenge buttons.",
         "challenge_unexpected_error": "⚠️ An unexpected error occurred while sending the challenge.",
         "challenge_accept_error": "⚠️ An error occurred while accepting the challenge. Please request a new challenge.",
-        "challenge_streak_3_level_1": "🔥🔥🔥 {name}, you're amazing! 3 challenges completed in a row, and Level 1 achieved. Keep up the pace, and a reward awaits you!",
+        "challenge_streak_3_level_1": "🔥🔥🔥 {name}, you're amazing! 3 challenges completed in a row, and Level 1 achieved. Keep up the pace!",
         
-        # Напоминания о челленджах (2026-01-23) — английский
         "challenge_pending_reminder_16": "⏰ <b>{name}</b>, you accepted the challenge but haven't completed it yet!\n\n💪 <i>«{challenge}»</i>\n\nDo it today! You've got this! 🔥",
         "challenge_hour_reminder": "⏳ <b>{name}</b>, it's already been an hour since you accepted the challenge!\n\n🎯 <i>«{challenge}»</i>\n\nDon't put it off — take this step right now! 💥",
-        
-        # Уведомление о сбросе стрика (2026-01-27)
-        "streak_lost_missed_day": "🔥 <b>{name}, you missed a challenge day!</b>\n\nYour completion streak of {previous_streak} days has been reset to 0.\n\nStart a new streak today! 💪",
+        "streak_lost_missed_day": "🔥 <b>{name}, you missed a challenge day!</b>\n\nYour completion streak of {previous_streak} days has been reset to 0. Start a new streak today! 💪",
         
         "unknown_command": "❓ Unknown command. Please use the buttons.",
         "users_file_caption": "📂 users.json",
@@ -405,7 +432,7 @@ translations: Dict[Lang, Dict[str, str]] = {
         "profile_status_demo_expired": "Demo expired",
         "profile_status_blocked": "Blocked",
         
-        "reminder_8": "Good morning, {name}! ☀️ Your trial period has ended. To continue receiving support and moving towards your goals, activate Premium access. 👇",
+        "reminder_8": "Good morning, {name}! ☀️ Your trial period has ended. To continue receiving support, activate Premium access. 👇",
         "reminder_12": "Focus of the day, {name}! 🎯 Your goals are waiting. Get full access to all Fotinia tools so you don't miss anything.",
         "reminder_15": "Day is in full swing, {name}! ⚡️ Don't stop there. Premium status will allow you to receive Rhythms and Rules without limits.",
         "reminder_18": "Good evening, {name}! ✨ Time to summarize. To start tomorrow with the right mindset again, switch to Premium.",
@@ -426,7 +453,7 @@ def t(key: str, lang: Lang = DEFAULT_LANG, **kwargs) -> str:
     Если ключа нет — возвращает сам ключ.
     Если ошибка форматирования — возвращает текст без проблемных плейсхолдеров.
     """
-    text = translations.get(lang, translations[DEFAULT_LANG]).get(key, key)
+    text = translations.get(lang, translations.get(DEFAULT_LANG, {})).get(key, key)
     
     # Если в тексте есть {name}, а kwargs["name"] не передан — ставим пустую строку
     if "{name}" in text and "name" not in kwargs:

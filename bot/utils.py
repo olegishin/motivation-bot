@@ -1,4 +1,5 @@
 # 05 - bot/utils.py
+# 05 - bot/utils.py - 27.01.2026
 # Исправленная версия: Разрешает нажатие кнопок новым пользователям
 # Исправленная версия: Защита от JSON-строк + Логика Демо
 # Исправленная версия: Защита от JSON-строк + Улучшенная логика Демо
@@ -30,6 +31,9 @@
 # ✅ ВОССТАНОВЛЕНО: _ensure_dict, format_phrase, Smart Ban, 5+1+5 Logic
 # ✅ СИНХРОНИЗИРОВАНО: Асинхронный is_demo_expired и расширенный get_demo_config
 # ✅ ДОБАВЛЕНО (2026-01-27): Система уровней для челленджей
+# ✅ ULTIMATE VERSION (29.01.2026)
+# ✅ ИСПРАВЛЕНО: Настройки демо используют правильные имена из config.py
+# ✅ СОХРАНЕНО: Smart Ban 24h, Логика 5+1+5, Защита от JSON, Middleware
 
 import asyncio
 import logging
@@ -74,12 +78,13 @@ def get_demo_config(user_id: int) -> dict:
         return {"demo": 365, "cooldown": 0}
     
     # Тестеры (если есть в конфиге)
-    if hasattr(settings, 'TESTERS') and user_id in settings.TESTERS:
-        return {"demo": 30, "cooldown": 1}
+    if hasattr(settings, 'TESTER_USER_IDS') and user_id in settings.TESTER_USER_IDS:
+        return {"demo": 1, "cooldown": 1}  # Для тестера 1 день демо, 1 день кулдаун
         
+    # ✅ ИСПРАВЛЕНО: Используем правильные имена настроек из config.py
     return {
-        "demo": settings.DEMO_DAYS,
-        "cooldown": settings.COOLDOWN_DAYS
+        "demo": settings.REGULAR_DEMO_DAYS,          # было: settings.DEMO_DAYS
+        "cooldown": settings.REGULAR_COOLDOWN_DAYS   # было: settings.COOLDOWN_DAYS
     }
 
 async def is_demo_expired(user_data: dict) -> bool:
