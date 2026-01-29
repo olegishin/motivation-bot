@@ -1,4 +1,6 @@
 ﻿# 04 - bot/keyboards.py
+# 04 - bot/keyboards.py - 26.01.2026
+# 04 - bot/keyboards.py
 # Поддержка ✅ на кнопках и классическая логика цитирования
 # Исправленная версия: поддержка галочек ✅ и аргумента user_name
 # Поддержка ✅ на кнопках и логика WebApp профиля
@@ -44,6 +46,12 @@
 #    - Исправлена функция is_demo_expired (вместо check_demo_status)
 #    - Админские кнопки показываются всегда для админа
 
+# 04 - bot/keyboards.py
+# ✅ ВЫДАНО ЦЕЛИКОМ ДЛЯ ЗАМЕНЫ — ПОЛНАЯ СВЕРКА (28.01.2026)
+# ✅ СИНХРОНИЗИРОВАНО: Логика 3+1+3 (Cooldown), Реферальная программа
+# ✅ ИСПРАВЛЕНО: Меню всегда развернуто (is_persistent=True), Админ-фикс
+# ✅ СОХРАНЕНО: WebApp Профиль, Поддержка ✅, Логика "Поделиться"
+
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -59,7 +67,34 @@ from bot.config import settings
 # ====================== REPLY КЛАВИАТУРЫ ======================
 
 def get_main_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
-    """Основная клавиатура для обычных пользователей."""
+    """Основная клавиатура для активных пользователей."""
+    builder = ReplyKeyboardBuilder()
+    # 1 ряд: Основной контент
+    builder.row(
+        KeyboardButton(text=t('btn_motivate', lang)),
+        KeyboardButton(text=t('btn_rhythm', lang))
+    )
+    # 2 ряд: Челленджи и правила
+    builder.row(
+        KeyboardButton(text=t('btn_challenge', lang)),
+        KeyboardButton(text=t('btn_rules', lang))
+    )
+    # 3 ряд: Профиль (WebApp) и Рефералы (Новинка аудита)
+    builder.row(
+        KeyboardButton(
+            text=t('btn_profile', lang), 
+            web_app=WebAppInfo(url=f"{settings.BASE_URL}/profile/{user_id}")
+        ),
+        KeyboardButton(text=t('btn_share', lang)) # Кнопка приглашения/рефералки
+    )
+    # 4 ряд: Настройки
+    builder.row(KeyboardButton(text=t('btn_settings', lang)))
+    
+    builder.adjust(2, 2, 2, 1)
+    return builder.as_markup(resize_keyboard=True, is_persistent=True)
+
+def get_admin_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
+    """Клавиатура для администратора (полный фарш)."""
     builder = ReplyKeyboardBuilder()
     builder.row(
         KeyboardButton(text=t('btn_motivate', lang)),
@@ -68,46 +103,25 @@ def get_main_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
     builder.row(
         KeyboardButton(text=t('btn_challenge', lang)),
         KeyboardButton(text=t('btn_rules', lang))
+    )
+    builder.row(
+        KeyboardButton(text=t('btn_stats', lang)),
+        KeyboardButton(text=t('btn_show_users', lang)),
+        KeyboardButton(text=t('btn_reload_data', lang))
     )
     builder.row(
         KeyboardButton(
             text=t('btn_profile', lang), 
             web_app=WebAppInfo(url=f"{settings.BASE_URL}/profile/{user_id}")
         ),
-        KeyboardButton(text=t('btn_settings', lang))
-    )
-    builder.adjust(2, 2, 2)
-    return builder.as_markup(resize_keyboard=True, is_persistent=True)
-
-def get_admin_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
-    """Клавиатура для администратора (дополнительные кнопки)."""
-    builder = ReplyKeyboardBuilder()
-    builder.row(
-        KeyboardButton(text=t('btn_motivate', lang)),
-        KeyboardButton(text=t('btn_rhythm', lang))
-    )
-    builder.row(
-        KeyboardButton(text=t('btn_challenge', lang)),
-        KeyboardButton(text=t('btn_rules', lang))
-    )
-    builder.row(
-        KeyboardButton(text=t('btn_settings', lang)),
-        KeyboardButton(text=t('btn_stats', lang)),
-        KeyboardButton(text=t('btn_show_users', lang))
-    )
-    builder.row(
-        KeyboardButton(text=t('btn_reload_data', lang)),
         KeyboardButton(text=t('btn_test_broadcast', lang)),
-        KeyboardButton(
-            text=t('btn_profile', lang), 
-            web_app=WebAppInfo(url=f"{settings.BASE_URL}/profile/{user_id}")
-        )
+        KeyboardButton(text=t('btn_settings', lang))
     )
     builder.adjust(2, 2, 3, 3)
     return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 def get_settings_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
-    """Клавиатура для настроек (выбор языка)."""
+    """Клавиатура выбора языка в настройках."""
     builder = ReplyKeyboardBuilder()
     builder.row(
         KeyboardButton(text="🇺🇦 Українська"),
@@ -120,51 +134,48 @@ def get_settings_keyboard(lang: Lang) -> ReplyKeyboardMarkup:
 
 def get_reply_keyboard_for_user(chat_id: int, lang: Lang, user_data: Dict[str, Any]) -> ReplyKeyboardMarkup:
     """
-    Возвращает правильную клавиатуру для пользователя.
-    ✅ ИСПРАВЛЕНО (2026-01-23): Исправлена проверка админа и демо-статуса
+    Определяет, какую клавиатуру выдать в зависимости от статуса 3+1+3.
     """
-    # ✅ FIX: Принудительное сравнение по ID для админа
+    # 1. Проверка на админа (Принудительное приведение типов)
     if int(chat_id) == int(settings.ADMIN_CHAT_ID):
         return get_admin_keyboard(lang, chat_id)
 
-    # 🔥 ИСПРАВЛЕНИЕ: Используем существующую функцию is_demo_expired
-    from bot.utils import is_demo_expired
     is_paid = user_data.get("is_paid", False)
-    
-    # Асинхронный вызов - нужно обернуть в async, но здесь мы синхронны
-    # Вместо этого проверим демо-статус по полям
+    status = user_data.get("status", "active_demo")
+
+    # 2. Если пользователь в "Дне тишины" (Cooldown) или Демо истекло
+    # Мы ограничиваем меню, оставляя только критические кнопки
+    from datetime import datetime, timezone
     demo_expired = False
     if not is_paid:
         expiry_str = user_data.get("demo_expiration")
         if not expiry_str:
             demo_expired = True
         else:
-            from datetime import datetime, timezone
             try:
-                expiry_date = datetime.fromisoformat(expiry_str).replace(tzinfo=timezone.utc)
+                expiry_date = datetime.fromisoformat(expiry_str.replace('Z', '+00:00')).replace(tzinfo=timezone.utc)
                 demo_expired = datetime.now(timezone.utc) > expiry_date
             except:
                 demo_expired = True
 
-    # Если демо истекло и не премиум - ограниченная клавиатура
-    if demo_expired and not is_paid:
+    if (demo_expired or status == "cooldown") and not is_paid:
         builder = ReplyKeyboardBuilder()
         builder.row(KeyboardButton(
             text=t('btn_profile', lang),
             web_app=WebAppInfo(url=f"{settings.BASE_URL}/profile/{chat_id}")
         ))
-        builder.row(KeyboardButton(text=t('btn_settings', lang)))
         builder.row(KeyboardButton(text=t('btn_pay_premium', lang)))
+        builder.row(KeyboardButton(text=t('btn_settings', lang)))
         builder.adjust(1, 1, 1)
         return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
-    # Обычная клавиатура для активных пользователей
+    # 3. Обычное меню для активных
     return get_main_keyboard(lang, chat_id)
 
 # ====================== INLINE КЛАВИАТУРЫ ======================
 
 def get_lang_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для выбора языка."""
+    """Выбор языка при первом старте."""
     builder = InlineKeyboardBuilder()
     builder.button(text="🇺🇦 Українська UA", callback_data="set_lang_ua")
     builder.button(text="🇬🇧 English EN", callback_data="set_lang_en")
@@ -179,30 +190,34 @@ def get_broadcast_keyboard(
     current_reaction: Optional[str] = None, 
     user_name: Optional[str] = None
 ) -> InlineKeyboardMarkup:
-    """Клавиатура для рассылок (лайки, дизлайки, поделиться)."""
+    """Кнопки под сообщениями рассылки (Реакции + Поделиться)."""
     builder = InlineKeyboardBuilder()
     
-    # ✅ ПОДДЕРЖКА ГАЛОЧЕК
-    like_text = "👍 ✅" if current_reaction == "like" else "👍"
-    dislike_text = "👎 ✅" if current_reaction == "dislike" else "👎"
+    # Реакция Like
+    like_txt = "👍 ✅" if current_reaction == "like" else "👍"
+    like_cb = "reaction:like:done" if current_reaction == "like" else "reaction:like"
+    
+    # Реакция Dislike
+    dis_txt = "👎 ✅" if current_reaction == "dislike" else "👎"
+    dis_cb = "reaction:dislike:done" if current_reaction == "dislike" else "reaction:dislike"
 
-    builder.button(text=like_text, callback_data=f"reaction:like:{category}")
-    builder.button(text=dislike_text, callback_data=f"reaction:dislike:{category}")
+    builder.button(text=like_txt, callback_data=like_cb)
+    builder.button(text=dis_txt, callback_data=dis_cb)
 
-    if category != "challenge" and quote_text:
-        # Безопасная обрезка для Share (лимит Telegram на длину URL)
-        safe_quote = quote_text[:250] + "..." if len(quote_text) > 250 else quote_text
-        share_msg = t('share_text_with_quote', lang, quote=safe_quote, bot_username=settings.BOT_USERNAME, name=user_name or "")
-        share_url = f"https://t.me/share/url?url=https://t.me/{settings.BOT_USERNAME}&text={quote(share_msg)}"
-        
+    # Кнопка "Поделиться" (если есть текст)
+    if quote_text:
+        # Обрезаем для стабильности ссылки
+        safe_quote = quote_text[:280] + "..." if len(quote_text) > 280 else quote_text
+        # Формируем текст (Призыв первым согласно аудиту)
+        share_msg = t('share_text_with_quote', lang, quote=safe_quote, bot_username=settings.BOT_USERNAME)
+        share_url = f"https://t.me/share/url?text={quote(share_msg)}"
         builder.button(text=t('btn_share', lang), url=share_url)
-        builder.adjust(2, 1)
-    else:
-        builder.adjust(2)
+
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 def get_challenge_buttons(lang: Lang, challenge_id: Optional[int] = None) -> InlineKeyboardMarkup:
-    """Клавиатура для челленджей (принять, новый)."""
+    """Принятие или выбор нового челленджа."""
     builder = InlineKeyboardBuilder()
     if challenge_id is not None:
         builder.button(text=t("btn_challenge_accept", lang), callback_data=f"accept_challenge:{challenge_id}")
@@ -211,21 +226,16 @@ def get_challenge_buttons(lang: Lang, challenge_id: Optional[int] = None) -> Inl
     return builder.as_markup()
 
 def get_challenge_complete_button(lang: Lang, challenge_id: int) -> InlineKeyboardMarkup:
-    """Кнопка для завершения челленджа."""
+    """Завершение челленджа."""
     builder = InlineKeyboardBuilder()
     builder.button(text=t("btn_challenge_complete", lang), callback_data=f"complete_challenge:{challenge_id}")
     return builder.as_markup()
 
-def get_payment_keyboard(lang: Lang, is_test_user: bool = False, show_new_demo: bool = False) -> InlineKeyboardMarkup:
-    """Клавиатура для оплаты и демо."""
+def get_payment_keyboard(lang: Lang, is_test_user: bool = False) -> InlineKeyboardMarkup:
+    """Клавиатура оплаты."""
     kb = InlineKeyboardBuilder()
-    if show_new_demo:
-        # ✅ FIX: колбэк должен совпадать с btn_want_demo обработчиком
-        kb.button(text=t('btn_want_demo', lang), callback_data="btn_want_demo")
-    
-    kb.button(text=t('btn_pay_premium', lang), url=settings.PAYMENT_LINK) 
-    
+    kb.button(text=t('btn_pay_premium', lang), url=settings.PAYMENT_LINK)
     if is_test_user:
-        kb.button(text="Test Pay", callback_data="test_payment_success")
+        kb.button(text="💳 Test Pay (Success)", callback_data="test_payment_success")
     kb.adjust(1)
     return kb.as_markup()

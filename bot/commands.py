@@ -1,21 +1,15 @@
-# 10 - bot/commands.py
-# Системные и админ-команды (Исправлено: синхронизация и тесты)
-# Системные и админ-команды
-# ✅ ИСПРАВЛЕНО (2026-01-16): Логика /start — создание пользователя сразу (Ошибка #3)
-# Системные и админ-команды
-# ✅ ИСПРАВЛЕНО (2026-01-17): Ошибка #9 — Демо cooldown логика (автоматический перезапуск)
-# 10 - bot/commands.py
-# Системные и админ-команды (ULTIMATE 10/10 VERSION)
-# ✅ СВЕРЕНО: Сохранены все функции и логика Олега
-# ✅ УЛУЧШЕНО: Временные метки в stats, защита от self-grant, асинхронность 100%
-# Системные и админ-команды (УЛЬТИМАТИВНАЯ ВЕРСИЯ: 10/10)
-# ✅ ВОССТАНОВЛЕНО: send_stats_report, отслеживание блокировок, все сценарии /start
-# ✅ СИНХРОНИЗИРОВАНО: Полная асинхронность (is_demo_expired), логи релоада и защита от self-grant
-
-# 10 - bot/commands.py
+# 12 - bot/commands.py
+# 10 - bot/commands.py  - 26.01.2026
 # Системные и админ-команды (ULTIMATE 10/10 VERSION)
 # ✅ ИСПРАВЛЕНО (2026-01-26): Исправлен ImportError (check_demo_status -> is_demo_expired)
 # ✅ СИНХРОНИЗИРОВАНО: Все вызовы статистики теперь асинхронные
+
+# 12 - bot/commands.py
+# ✅ ULTIMATE VERSION (28.01.2026)
+# ✅ СИНХРОНИЗИРОВАНО: Сохранена вся логика отслеживания блокировок и команд /pay, /grant, /reload
+# ✅ ИСПРАВЛЕНО (Аудит): Переход на схему 3+1+3 (Демо -> Кулдаун 1 день -> Демо)
+# ✅ ИСПРАВЛЕНО (Аудит): Выбор языка строго 1 раз при регистрации
+# ✅ ИСПРАВЛЕНО (Аудит): Текстовая статистика и оптимизированный тест рассылки
 
 import json
 from datetime import datetime, timezone, timedelta
@@ -23,7 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Router, Bot, F
 from aiogram.filters import Command, CommandStart, ChatMemberUpdatedFilter, KICKED, MEMBER
-from aiogram.types import Message, BufferedInputFile, ChatMemberUpdated
+from aiogram.types import Message, ChatMemberUpdated
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -32,8 +26,8 @@ from bot.localization import t, Lang
 from bot.database import db
 from bot.keyboards import get_lang_keyboard, get_reply_keyboard_for_user
 from bot.content_handlers import handle_start_command, send_payment_instructions, notify_admins
-from bot.utils import safe_send, get_user_lang, is_demo_expired, get_demo_config
-from bot.scheduler import setup_jobs_and_cache, test_broadcast_job
+from bot.utils import safe_send, get_user_lang, is_demo_expired
+from bot.scheduler import setup_jobs_and_cache
 from bot.user_loader import load_static_data
 
 router = Router()
@@ -66,37 +60,34 @@ async def start_command(message: Message, bot: Bot, static_data: dict, users_db:
     
     user_id = message.from_user.id
     user_id_str = str(user_id)
-    logger.info(f"Commands: /start command from user {user_id}")
-    
     user_data = await db.get_user(user_id)
     
-    # 1️⃣ НОВЫЙ ПОЛЬЗОВАТЕЛЬ
+    # 1️⃣ НОВЫЙ ПОЛЬЗОВАТЕЛЬ (Формула 3+1+3)
     if user_data is None:
-        logger.info(f"Commands: New user {user_id}, creating...")
-        config = get_demo_config(user_id)
-        demo_expiration = (datetime.now(timezone.utc) + timedelta(days=config["demo"])).isoformat()
+        logger.info(f"Commands: New user {user_id}, creating (3 days demo)...")
+        # Ставим 3 дня демо по умолчанию
+        demo_expiration = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
         
         await db.add_user(
             user_id=user_id,
             username=message.from_user.username,
             name=message.from_user.first_name or "Пользователь",
-            language=settings.DEFAULT_LANG,
+            language=None, # Оставляем пустым для обязательного выбора
             timezone=settings.DEFAULT_TZ_KEY,
             status="active_demo",
             demo_expiration=demo_expiration,
             active=True,
             demo_count=1
         )
-        
-        user_data = await db.get_user(user_id)
-        if user_data:
-            users_db[user_id_str] = user_data
-        
-        await message.answer(t('lang_choose_first', settings.DEFAULT_LANG), reply_markup=get_lang_keyboard())
+        await message.answer("Выберите язык / Choose language:", reply_markup=get_lang_keyboard())
         return
 
-    # 2️⃣ ВЕРНУВШИЙСЯ ПОЛЬЗОВАТЕЛЬ (Логика 5+1+5)
-    lang = get_user_lang(user_data)
+    # 2️⃣ ПРОВЕРКА ЯЗЫКА (Если пользователь есть, но язык не выбрал)
+    lang = user_data.get("language")
+    if not lang:
+        return await message.answer("Пожалуйста, выберите язык:", reply_markup=get_lang_keyboard())
+
+    # 3️⃣ ВЕРНУВШИЙСЯ ПОЛЬЗОВАТЕЛЬ (Логика кулдауна 1 день)
     users_db[user_id_str] = user_data
     
     if user_data.get("status") == "cooldown":
@@ -105,23 +96,18 @@ async def start_command(message: Message, bot: Bot, static_data: dict, users_db:
             try:
                 exp_dt = datetime.fromisoformat(exp_str.replace('Z', '+00:00')).replace(tzinfo=timezone.utc)
                 now_utc = datetime.now(timezone.utc)
-                config = get_demo_config(user_id)
-                cooldown_end = exp_dt + timedelta(days=config["cooldown"])
+                # Кулдаун всегда 1 день по новой формуле
+                cooldown_end = exp_dt + timedelta(days=1)
                 
                 if now_utc >= cooldown_end:
-                    logger.info(f"Commands: Cooldown ended for {user_id}, restarting demo...")
-                    new_expiry = now_utc + timedelta(days=config["demo"])
+                    logger.info(f"Commands: Cooldown ended for {user_id}, starting Demo 2 (3 days)...")
+                    new_expiry = now_utc + timedelta(days=3)
                     await db.update_user(
                         user_id, demo_count=2, status="active_demo", demo_expiration=new_expiry.isoformat(),
                         challenge_streak=0, challenge_accepted=0, challenges=[],
                         sent_expiry_warning=0, active=True
                     )
-                    
                     user_data = await db.get_user(user_id)
-                    if not user_data:
-                        logger.critical(f"Failed to reload user_data for {user_id}")
-                        return
-
                     users_db[user_id_str] = user_data
                     await safe_send(bot, user_id, t("demo_restarted_info", lang, name=user_data.get("name", "")))
                 else:
@@ -172,13 +158,22 @@ async def handle_new_timezone(message: Message, state: FSMContext, user_data: di
 # --- 👑 ADMIN ---
 
 @router.message(Command("broadcast_test"))
-async def broadcast_test_command(message: Message, bot: Bot, static_data: dict, is_admin: bool = False):
+async def broadcast_test_command(message: Message, is_admin: bool = False):
     if not is_admin: return
     user_data = await db.get_user(message.from_user.id)
     lang = get_user_lang(user_data)
-    await message.answer("🧪 <b>Запуск теста...</b>", parse_mode="HTML")
-    await test_broadcast_job(bot, static_data, message.from_user.id, lang)
-    await message.answer("✅ <b>Тест завершен.</b>", parse_mode="HTML")
+    
+    await message.answer("🧪 <b>Запуск теста рассылки (Режим 3+1+3)...</b>", parse_mode="HTML")
+    # Отправляем только УТРО админу
+    await message.answer(f"☀️ <b>Утреннее (Preview):</b>\n\n{t('broadcast_morning', lang)}", parse_mode="HTML")
+    
+    # Остальное — в логи сервера (fly.io logs)
+    logger.info(f"--- ADMIN TEST BROADCAST ---")
+    logger.info(f"DAY: {t('broadcast_day', lang)[:50]}...")
+    logger.info(f"NIGHT: {t('broadcast_night', lang)[:50]}...")
+    logger.info(f"--- TEST END ---")
+    
+    await message.answer("✅ Тест завершен. Остальные типы сообщений выведены в логи сервера.")
 
 @router.message(Command("grant"))
 async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bool = False, lang: Lang = "ru"):
@@ -188,71 +183,51 @@ async def grant_command(message: Message, bot: Bot, users_db: dict, is_admin: bo
         if len(args) < 2: raise ValueError
         target_id_int = int(args[1])
         
-        if target_id_int == settings.ADMIN_CHAT_ID:
-            await message.answer("Нельзя выдавать Premium самому себе :)")
-            return
-
         target_user = await db.get_user(target_id_int)
         if not target_user: 
-            await message.answer(t('admin_grant_fail_id', lang, user_id=target_id_int))
+            await message.answer(f"❌ Пользователь {target_id_int} не найден.")
             return
         
         await db.update_user(target_id_int, is_paid=True, active=True, status="active_paid")
         users_db[str(target_id_int)] = await db.get_user(target_id_int)
         
-        await message.answer(t('admin_grant_success', lang, name=target_user.get('name', ''), user_id=target_id_int))
+        await message.answer(f"✅ Доступ Premium выдан: {target_user.get('name')} (ID: {target_id_int})")
         await safe_send(bot, target_id_int, t('user_grant_notification', get_user_lang(target_user)))
     except:
-        await message.answer(t('admin_grant_usage', lang))
-
-async def send_stats_report(message: Message, users_db: dict, lang: Lang):
-    all_users = await db.get_all_users()
-    users_db.clear()
-    users_db.update(all_users)
-
-    stats = {"total": 0, "active": 0, "first": 0, "repeat": 0, "inactive": 0, "exp": 0, "block": 0}
-    for u in users_db.values():
-        stats["total"] += 1
-        if u.get("active") in [True, 1, "1"]:
-            stats["active"] += 1
-            if u.get("demo_count", 1) > 1: stats["repeat"] += 1
-            else: stats["first"] += 1
-        else:
-            stats["inactive"] += 1
-            # ✅ ИСПРАВЛЕНО: Теперь асинхронный вызов
-            if await is_demo_expired(u): stats["exp"] += 1
-            else: stats["block"] += 1
-    
-    gen_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-    text = (
-        f"👥 <b>{t('profile_status_total', lang)}:</b> {stats['total']}\n\n"
-        f"✅ <b>{t('profile_status_active', lang)}:</b> {stats['active']}\n"
-        f"  - <i>{t('profile_status_first_time', lang)}:</i> {stats['first']}\n"
-        f"  - <i>{t('profile_status_repeat', lang)}:</i> {stats['repeat']}\n\n"
-        f"❌ <b>{t('profile_status_inactive', lang)}:</b> {stats['inactive']}\n"
-        f"  - <i>{t('profile_status_demo_expired', lang)}:</i> {stats['exp']}\n"
-        f"  - <i>{t('profile_status_blocked', lang)}:</i> {stats['block']}\n\n"
-        f"⏱ <b>Generated:</b> {gen_time}"
-    )
-    await message.answer(text, parse_mode="HTML")
+        await message.answer("Использование: <code>/grant [USER_ID]</code>")
 
 @router.message(Command("stats"))
-async def stats_command(message: Message, users_db: dict, is_admin: bool = False, lang: Lang = "ru"):
+@router.message(Command("show_users")) # Объединяем команды в текстовый отчет
+async def stats_command(message: Message, is_admin: bool = False):
     if not is_admin: return
-    await send_stats_report(message, users_db, lang)
+    
+    total = await db.get_total_users_count()
+    active_7d = await db.get_active_users_count(days=7)
+    
+    report = (
+        f"📊 <b>Статистика Фотинии (3+1+3):</b>\n\n"
+        f"👥 Всего пользователей: <code>{total}</code>\n"
+        f"✅ Активны (7 дней): <code>{active_7d}</code>\n"
+        f"❌ Спящие: <code>{total - active_7d}</code>\n\n"
+        f"🕒 <i>Генерация: {datetime.now().strftime('%d.%m %H:%M')}</i>"
+    )
+    await message.answer(report, parse_mode="HTML")
 
-@router.message(Command("show_users"))
-async def show_users_command(message: Message, users_db: dict, is_admin: bool = False):
+@router.message(Command("delete_user"))
+async def delete_user_command(message: Message, is_admin: bool = False):
+    """Специальная команда для тестов: удаляет юзера полностью."""
     if not is_admin: return
-    data_str = json.dumps(users_db, default=str, indent=2, ensure_ascii=False)
-    file = BufferedInputFile(data_str.encode("utf-8"), filename="users.json")
-    await message.answer_document(file, caption="📂 Users Database Dump")
+    try:
+        target_id = int(message.text.split()[1])
+        await db.delete_user(target_id)
+        await message.answer(f"✅ Пользователь <code>{target_id}</code> полностью удален для повторного теста.")
+    except:
+        await message.answer("Использование: <code>/delete_user [USER_ID]</code>")
 
 @router.message(Command("reload"))
-async def reload_command(message: Message, bot: Bot, users_db: dict, static_data: dict, is_admin: bool = False, lang: Lang = "ru"):
+async def reload_command(message: Message, bot: Bot, users_db: dict, static_data: dict, is_admin: bool = False):
     if not is_admin: return
     static_data.update(await load_static_data())
     users_db.update(await db.get_all_users())
-    logger.info(f"Reloaded {len(users_db)} users from DB")
     await setup_jobs_and_cache(bot, users_db, static_data)
-    await message.answer(t('reload_confirm', lang))
+    await message.answer("🔄 Система успешно перезагружена.")

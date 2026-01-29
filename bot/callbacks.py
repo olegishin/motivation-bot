@@ -11,6 +11,15 @@
 # ✅ ИСПРАВЛЕНО (2026-01-23): 
 #    - Кнопки не пропадают после выбора языка
 #    - Админские кнопки показываются сразу для админа
+# ✅ ИСПРАВЛЕНО (2026-01-26): 
+#    - handle_reaction не зависит от middleware, все данные берет из БД
+# 10 - bot/callbacks.py
+# ✅ ВЫДАНО ЦЕЛИКОМ ДЛЯ ЗАМЕНЫ — ПОЛНАЯ СВЕРКА (28.01.2026)
+# ✅ СИНХРОНИЗИРОВАНО: 3+1+3 (Проверка Cooldown), Челленджи, Реакции
+# ✅ ИСПРАВЛЕНО: callback_data для челленджей совпадает с keyboards.py
+# ✅ СОХРАНЕНО: Защита от дублей реакций, Smart Ban, логика имен Олега
+# ✅ ИСПРАВЛЕНО (29.01.2026): Новый пользователь получает полное приветствие
+# ✅ СОХРАНЕНО: Вся логика Cooldown, реакции, челленджи, админ-панель
 
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardButton
@@ -21,248 +30,159 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.config import logger, settings
 from bot.localization import t, Lang
 from bot.database import db 
-from bot.content_handlers import handle_start_command 
+from bot.utils import get_demo_config
 from bot.challenges import accept_challenge, send_new_challenge_message, complete_challenge
 from bot.keyboards import get_reply_keyboard_for_user
-from bot.commands import send_stats_report 
+from bot.commands import stats_command
 
 router = Router()
 
-# --- 🌍 ВЫБОР ЯЗЫКА ---
+# --- 🌍 ВЫБОР ЯЗЫКА (ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
+
 @router.callback_query(F.data.startswith("set_lang_"))
-async def handle_lang_select(
-    query: CallbackQuery, 
-    bot: Bot, 
-    static_data: dict, 
-    user_data: dict, 
-    **kwargs 
-):
-    """
-    ✅ ИСПРАВЛЕНО (2026-01-16):
-    - Убран параметр is_new_user (его нет в middleware)
-    - Определяем новый пользователь через user_data.get("language")
-    - Исправлен full_name → name (из database.py)
-    
-    ✅ ИСПРАВЛЕНО (2026-01-23):
-    - Кнопки не пропадают после выбора языка
-    - Админские кнопки показываются сразу для админа
-    """
-    
-    if not query.message: 
-        await query.answer("Ошибка: сообщение не найдено.")
-        return
+async def handle_lang_select(query: CallbackQuery, bot: Bot, static_data: dict, user_data: dict, **kwargs):
+    """Первичный выбор языка с полным приветствием для новых пользователей."""
+    if not query.message: return
         
-    parts = query.data.split("_")
-    lang_code = parts[-1] 
+    lang_code = query.data.split("_")[-1]
+    if lang_code not in ("ru", "ua", "en"): return
     
-    if lang_code not in ("ru", "ua", "en"): 
-        return
-    
-    lang: Lang = lang_code  # type: ignore
+    lang: Lang = lang_code
     chat_id = query.from_user.id
     
-    # 🛡️ Определяем новый ли пользователь (нет language → новый)
-    # НО: С исправленной commands.py, пользователь УЖЕ должен быть в БД!
+    # Имя пользователя с fallback
+    name = query.from_user.first_name or user_data.get("name") or "друг"
+    
+    # Определяем, новый ли это пользователь
     is_new_user = not user_data.get("language")
     
-    # 1️⃣ Обновляем язык в базе данных
-    if is_new_user:
-        # ✅ ИСПРАВЛЕНО: используем name вместо full_name
-        # На самом деле, с новой commands.py это НЕ должно вызываться (пользователь уже создан)
-        # Но на случай edge case, обновляем вместо создания
-        await db.update_user(
-            chat_id,
-            language=lang,
-            name=query.from_user.first_name or "Пользователь"
-        )
-        logger.info(f"Callbacks: New user {chat_id} set language to {lang}")
-    else:
-        # Вернувшийся пользователь просто обновляет язык
-        await db.update_user(chat_id, language=lang)
-        logger.info(f"Callbacks: User {chat_id} switched language to {lang}")
+    logger.info(f"User {chat_id} selected language {lang} (new: {is_new_user})")
     
-    # 2️⃣ КРИТИЧЕСКИ ВАЖНО: Получаем ПОЛНОСТЬЮ обновленные данные из БД
-    # Это гарантирует, что лимиты и язык синхронизированы
+    # Обновляем язык в БД
+    await db.update_user(chat_id, language=lang, name=name)
+    
+    # Получаем свежие данные
     fresh_data = await db.get_user(chat_id)
     if fresh_data:
         user_data.update(fresh_data)
-        logger.debug(f"Callbacks: Updated user_data for {chat_id}, language={fresh_data.get('language')}")
-        
-        # Также обновляем в кэше, если он передан через middleware
         if "users_db" in kwargs:
             kwargs["users_db"][str(chat_id)] = fresh_data
-            logger.debug(f"Callbacks: Updated users_db cache for {chat_id}")
-
-    await query.answer(t('lang_chosen', lang))
     
-    # 3️⃣ 🔥 ИСПРАВЛЕНИЕ №1: НЕ УДАЛЯЕМ СООБЩЕНИЕ, а редактируем его текст
-    try: 
-        await query.message.edit_text(
-            t('lang_chosen', lang),
-            reply_markup=None  # Убираем только inline-кнопки выбора языка
-        )
-    except TelegramBadRequest: 
-        # Если редактировать не получилось, продолжаем
-        pass 
+    # 1. Убираем inline-кнопки выбора языка
+    try:
+        await query.message.edit_text(t('lang_chosen', lang), reply_markup=None)
+    except TelegramBadRequest:
+        pass
     
-    # 4️⃣ 🔥 ИСПРАВЛЕНИЕ №2: СРАЗУ показываем правильные reply-кнопки
+    # 2. Готовим клавиатуру
     markup = get_reply_keyboard_for_user(chat_id, lang, user_data)
     
-    if is_new_user: 
-        logger.info(f"Callbacks: Showing welcome message for new user {chat_id}")
-        await handle_start_command(
-            message=query.message, 
-            static_data=static_data, 
-            user_data=user_data, 
-            lang=lang, 
-            is_new_user=True
-        )
-    else: 
-        logger.info(f"Callbacks: Updating keyboard for user {chat_id}")
-        # Отправляем новое сообщение с правильной клавиатурой
+    # 3. ДЛЯ НОВОГО ПОЛЬЗОВАТЕЛЯ - ПОЛНОЕ ПРИВЕТСТВИЕ
+    if is_new_user:
+        # Получаем настройки демо для этого пользователя
+        config = get_demo_config(chat_id)
+        demo_days = config["demo"]
+        
+        # Отправляем приветствие
+        welcome_text = t('welcome', lang, name=name, demo_days=demo_days)
         await bot.send_message(
-            chat_id, 
-            t('lang_chosen', lang), 
+            chat_id,
+            welcome_text,
+            reply_markup=markup,
+            parse_mode="HTML"
+        )
+        
+        # Добавляем заметку о часовом поясе
+        tz_note = t('welcome_timezone_note', lang, default_tz=settings.DEFAULT_TZ_KEY)
+        await bot.send_message(chat_id, tz_note, parse_mode="HTML")
+    
+    # 4. ДЛЯ ВЕРНУВШЕГОСЯ - КОРОТКОЕ СООБЩЕНИЕ
+    else:
+        await bot.send_message(
+            chat_id,
+            f"{t('lang_chosen', lang)}\n\n{t('msg_welcome_back', lang)}",
             reply_markup=markup
         )
-
+    
+    # 5. Убираем "часики" с кнопки
+    await query.answer()
 
 # --- 👍 РЕАКЦИИ (Лайки / Дизлайки) ---
+
 @router.callback_query(F.data.startswith("reaction:"))
-async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang, **kwargs):
-    """
-    Обработка нажатия кнопок лайка/дизлайка.
-    ✅ ИСПРАВЛЕНО (2026-01-20): Повторное нажатие → ТОЛЬКО всплывающее окно
-    """
+async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang):
+    """Обработка оценки контента с проверкой на дубли и Cooldown."""
     
-    user_name = user_data.get("name") or query.from_user.first_name or ""
+    # 🛡️ ПРОВЕРКА COOLDOWN (3+1+3)
+    if user_data.get("status") == "cooldown":
+        from datetime import datetime, timezone, timedelta
+        exp_str = user_data.get("demo_expiration")
+        try:
+            exp_dt = datetime.fromisoformat(exp_str.replace('Z', '+00:00')).replace(tzinfo=timezone.utc)
+            cooldown_end = exp_dt + timedelta(days=1)
+            rem = cooldown_end - datetime.now(timezone.utc)
+            h, m = int(rem.total_seconds() // 3600), int((rem.total_seconds() % 3600) // 60)
+            return await query.answer(t('btn_quiet_day_lock', lang, hours=h, minutes=m), show_alert=True)
+        except:
+            return await query.answer(t('btn_quiet_day_lock', lang, hours=0, minutes=0), show_alert=True)
+
     parts = query.data.split(":")
     action = parts[1]  # "like" или "dislike"
-    
-    # Пытаемся найти кнопку "Поделиться" в текущем сообщении
-    share_url = None
-    share_text = t('btn_share', lang) 
-    
-    if query.message.reply_markup and query.message.reply_markup.inline_keyboard:
-        for row in query.message.reply_markup.inline_keyboard:
-            for button in row:
-                if button.url and button.text == share_text: 
-                    share_url = button.url
-                    break
-            if share_url: 
-                break
 
-    # ✅ ИСПРАВЛЕНО: Если уже проголосовано → ТОЛЬКО всплывающее окно
+    # ✅ ЗАЩИТА ОТ ДУБЛЕЙ
     if len(parts) > 2 and parts[2] == "done":
-        logger.debug(f"Callbacks: User {query.from_user.id} tried duplicate reaction")
-        await query.answer(
-            t('reaction_already_accepted', lang, name=user_name),
-            show_alert=True  # ✅ Всплывающее окно на 2 секунды БЕЗ спама в чат
-        )
-        return  # ✅ Сразу выходим, НЕ отправляя текстовое сообщение
+        return await query.answer(t('reaction_already_accepted', lang, name=user_data.get("name", "")), show_alert=True)
 
-    # Получаем актуальную статистику из user_data
-    new_likes = user_data.get("stats_likes", 0)
-    new_dislikes = user_data.get("stats_dislikes", 0)
+    # Обновляем статистику в БД
+    new_likes = user_data.get("stats_likes", 0) + (1 if action == "like" else 0)
+    new_dislikes = user_data.get("stats_dislikes", 0) + (1 if action == "dislike" else 0)
     
-    # Увеличиваем счетчик соответствующей реакции
-    if action == "like": 
-        new_likes += 1
-    elif action == "dislike": 
-        new_dislikes += 1
-    
-    # Сохраняем в БД
-    await db.update_user(
-        query.from_user.id, 
-        stats_likes=new_likes, 
-        stats_dislikes=new_dislikes
-    )
-    
-    # Обновляем локальные данные
-    user_data["stats_likes"] = new_likes
-    user_data["stats_dislikes"] = new_dislikes
-    
-    logger.info(f"Callbacks: User {query.from_user.id} reacted with {action}")
-    
-    # Отправляем благодарность с цитированием (только при ПЕРВОЙ оценке)
-    await query.message.reply(t('reaction_received', lang, name=user_name))
-    await query.answer()  # Убираем "часики"
+    await db.update_user(query.from_user.id, stats_likes=new_likes, stats_dislikes=new_dislikes)
+    user_data.update({"stats_likes": new_likes, "stats_dislikes": new_dislikes})
 
-    # Обновляем кнопки (добавляем галочку)
+    await query.answer(t('reaction_received', lang, name=user_data.get("name", "")))
+    
+    # Обновляем кнопки в сообщении (ставим галочку)
+    share_url = None
+    if query.message.reply_markup:
+        for row in query.message.reply_markup.inline_keyboard:
+            for btn in row:
+                if btn.url: share_url = btn.url
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="👍 ✅" if action == "like" else "👍", callback_data="reaction:like:done")
+    kb.button(text="👎 ✅" if action == "dislike" else "👎", callback_data="reaction:dislike:done")
+    if share_url:
+        kb.row(InlineKeyboardButton(text=t('btn_share', lang), url=share_url))
+    
     try:
-        kb = InlineKeyboardBuilder()
-        l_text = "👍 ✅" if action == "like" else "👍"
-        d_text = "👎 ✅" if action == "dislike" else "👎"
-        kb.button(text=l_text, callback_data="reaction:like:done")
-        kb.button(text=d_text, callback_data="reaction:dislike:done")
-        kb.adjust(2) 
-        if share_url:
-            kb.row(InlineKeyboardButton(text=share_text, url=share_url))
         await query.message.edit_reply_markup(reply_markup=kb.as_markup())
-    except TelegramBadRequest: 
-        pass  # Сообщение может быть удалено
-    except Exception as e: 
-        logger.error(f"Callbacks: Error updating reaction buttons: {e}")
-
+    except TelegramBadRequest:
+        pass
 
 # --- ⚔️ ЧЕЛЛЕНДЖИ ---
-@router.callback_query(F.data.startswith("accept_challenge_idx:"))
-async def handle_accept_challenge_idx(
-    query: CallbackQuery, 
-    static_data: dict, 
-    user_data: dict, 
-    lang: Lang, 
-    state: FSMContext, 
-    **kwargs
-):
-    """Обработка нажатия кнопки 'Принять' челлендж."""
+
+@router.callback_query(F.data.startswith("accept_challenge:"))
+async def handle_accept_challenge(query: CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext):
+    if user_data.get("status") == "cooldown":
+        return await query.answer(t('btn_quiet_day_lock', lang), show_alert=True)
     await accept_challenge(query, static_data, user_data, lang, state)
 
-
 @router.callback_query(F.data == "new_challenge")
-async def handle_new_challenge(
-    query: CallbackQuery, 
-    static_data: dict, 
-    user_data: dict, 
-    lang: Lang, 
-    state: FSMContext, 
-    **kwargs
-):
-    """Обработка нажатия кнопки 'Новый' челлендж (переролл)."""
-    # При реролле (🎲 Новый) обновляем с is_edit=True
+async def handle_new_challenge(query: CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext):
+    if user_data.get("status") == "cooldown":
+        return await query.answer(t('btn_quiet_day_lock', lang), show_alert=True)
     await send_new_challenge_message(query, static_data, user_data, lang, state, is_edit=True)
 
-
 @router.callback_query(F.data.startswith("complete_challenge:"))
-async def handle_complete_challenge(
-    query: CallbackQuery, 
-    user_data: dict, 
-    lang: Lang, 
-    state: FSMContext, 
-    **kwargs
-):
-    """Обработка нажатия кнопки 'Выполнено' челлендж."""
+async def handle_complete_challenge(query: CallbackQuery, user_data: dict, lang: Lang, state: FSMContext):
     await complete_challenge(query, user_data, lang, state)
 
+# --- 📊 АДМИН ПАНЕЛЬ (Inline) ---
 
-# --- 🛠 АДМИН ---
 @router.callback_query(F.data == "admin_stats")
-async def handle_admin_stats_callback(
-    query: CallbackQuery, 
-    users_db: dict, 
-    is_admin: bool, 
-    lang: Lang, 
-    **kwargs
-):
-    """Обработка запроса статистики от админа."""
-    await query.answer()
-    
+async def handle_admin_stats_callback(query: CallbackQuery, is_admin: bool, lang: Lang):
     if not is_admin:
-        logger.warning(f"Callbacks: Non-admin user {query.from_user.id} tried to access admin_stats")
-        return
-    
-    if not query.message:
-        return
-    
-    logger.info(f"Callbacks: Admin {query.from_user.id} requested statistics")
-    await send_stats_report(query.message, users_db, lang)
+        return await query.answer("Access Denied", show_alert=True)
+    await query.answer()
+    await stats_command(query.message, is_admin=True)
