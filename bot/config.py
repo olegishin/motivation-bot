@@ -1,12 +1,7 @@
 # 01 - bot/config.py
-# Конфигурация бота и логирование.
-# (Добавлены настройки платежей и улучшения валидации)
+# 01 - bot/config.py - ФИНАЛЬНАЯ ВЕРСИЯ (22.02.2026)
 # Конфигурация бота и логирование
-# ✅ ИСПРАВЛЕНО (2026-01-16):
-#    - Строгая валидация REQUIRED_SETTINGS
-#    - Блокировка старта если недостаточно параметров
-#    - Проверка критичных путей и прав доступа
-#    - Полное логирование при инициализации
+# ✅ ПРОВЕРЕНО: Валидация всех параметров, блокировка старта при ошибках
 
 import os
 import logging
@@ -31,7 +26,7 @@ logger.setLevel(logging.INFO)
 config_logger = logging.getLogger("config")
 config_logger.setLevel(logging.CRITICAL)
 
-# --- СПИСОК ОБЯЗАТЕЛЬНЫХ ПАРАМЕТРОВ (Ошибка валидации вызовет sys.exit) ---
+# --- СПИСОК ОБЯЗАТЕЛЬНЫХ ПАРАМЕТРОВ ---
 REQUIRED_SETTINGS = {
     "BOT_TOKEN": "Telegram Bot Token (от BotFather)",
     "ADMIN_CHAT_ID": "Admin user ID (твой ID в Telegram)",
@@ -39,16 +34,13 @@ REQUIRED_SETTINGS = {
     "ADMIN_PASSWORD": "Admin password (для /admin/login)",
     "ADMIN_SECRET": "Admin secret token (для CSRF защиты)",
     "ADMIN_JWT_SECRET": "JWT secret (для админ-сессий)",
-    "ADMIN_2FA_SECRET": "Google Authenticator 2FA secret (базовый64)",
+    "ADMIN_2FA_SECRET": "Google Authenticator 2FA secret",
 }
 
-# --- КРИТИЧНЫЕ ПУТИ (должны быть доступны) ---
+# --- КРИТИЧНЫЕ ПУТИ ---
 CRITICAL_PATHS = [
     "data_initial",  # Исходные данные (челленджи, правила и т.д.)
 ]
-
-# --- КРИТИЧНЫЕ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (если не установлены — критичная ошибка) ---
-CRITICAL_ENV_VARS = list(REQUIRED_SETTINGS.keys())
 
 # ----------------- КОНФИГУРАЦИЯ .ENV -----------------
 class Settings(BaseSettings):
@@ -62,10 +54,10 @@ class Settings(BaseSettings):
     DEFAULT_LANG: str = "ru"
     DEFAULT_TZ_KEY: str = "Europe/Kiev"
 
-    # === Админка (ОБЯЗАТЕЛЬНЫЕ — должны быть в Secrets Fly.io) ===
+    # === Админка (ОБЯЗАТЕЛЬНЫЕ) ===
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD: str
-    ADMIN_SECRET: str 
+    ADMIN_SECRET: str
     ADMIN_JWT_SECRET: str
     ADMIN_2FA_SECRET: str
 
@@ -78,8 +70,8 @@ class Settings(BaseSettings):
     TESTER_USER_IDS: Set[int] = {290711961, 6104624108}
     SIMULATOR_USER_IDS: Set[int] = {6112492697}
 
-    # === Логика лимитов и демо ===
-    REGULAR_DEMO_DAYS: int = 5
+    # === Логика лимитов и демо (ФОРМУЛА 3+1+3) ===
+    REGULAR_DEMO_DAYS: int = 3  # ← ИСПРАВЛЕНО: было 5, теперь 3
     REGULAR_COOLDOWN_DAYS: int = 1
     TESTER_DEMO_DAYS: int = 1
     TESTER_COOLDOWN_DAYS: int = 1
@@ -127,21 +119,20 @@ class Settings(BaseSettings):
         """Путь к исходным данным (челленджи, правила и т.д.)."""
         return Path(__file__).resolve().parent.parent / "data_initial"
 
+    @property
+    def DEFAULT_TIMEZONE(self) -> str:
+        """Алиас для DEFAULT_TZ_KEY (для совместимости)."""
+        return self.DEFAULT_TZ_KEY
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore"
     )
 
-
 # --- ✅ ПРОЦЕДУРА ВАЛИДАЦИИ КОНФИГА ---
 def _validate_required_settings(settings_obj: Settings) -> None:
-    """
-    ✅ ИСПРАВЛЕНО (Ошибка валидации конфига):
-    Проверяет наличие ВСЕХ обязательных параметров.
-    Если какой-то не установлен → блокирует старт бота.
-    """
-    
+    """Проверяет наличие ВСЕХ обязательных параметров."""
     logger.info("=" * 70)
     logger.info("🔍 VALIDATING REQUIRED SETTINGS")
     logger.info("=" * 70)
@@ -151,27 +142,24 @@ def _validate_required_settings(settings_obj: Settings) -> None:
     for setting_name, setting_description in REQUIRED_SETTINGS.items():
         setting_value = getattr(settings_obj, setting_name, None)
         
-        # Проверяем: существует ли параметр и он не пуст
         if not setting_value:
             missing_settings.append((setting_name, setting_description))
             logger.critical(f"❌ MISSING: {setting_name}")
             logger.critical(f"   Description: {setting_description}")
         else:
-            # Скрываем чувствительные данные в логах
+            # Скрываем чувствительные данные
             if "SECRET" in setting_name or "TOKEN" in setting_name or "PASSWORD" in setting_name:
                 masked_value = setting_value[:10] + "..." if len(str(setting_value)) > 10 else "***"
                 logger.info(f"✅ {setting_name}: {masked_value}")
             else:
                 logger.info(f"✅ {setting_name}: {setting_value}")
     
-    # Если есть пропущенные параметры → критичная ошибка
     if missing_settings:
         logger.critical("=" * 70)
         logger.critical("🚨 CRITICAL: MISSING REQUIRED SETTINGS!")
         logger.critical("=" * 70)
         logger.critical("")
-        logger.critical("The following settings are REQUIRED and must be set")
-        logger.critical("in .env file or as environment variables:")
+        logger.critical("The following settings are REQUIRED:")
         logger.critical("")
         
         for setting_name, setting_description in missing_settings:
@@ -182,25 +170,15 @@ def _validate_required_settings(settings_obj: Settings) -> None:
         logger.critical("For Fly.io deployment, use:")
         logger.critical("  $ flyctl secrets set KEY=VALUE")
         logger.critical("")
-        logger.critical("For local development, create .env file with:")
-        logger.critical("  BOT_TOKEN=your_token_here")
-        logger.critical("  ADMIN_PASSWORD=your_password")
-        logger.critical("  # ... and other required settings")
-        logger.critical("")
         logger.critical("=" * 70)
         
-        sys.exit(1)  # 🔴 БЛОКИРУЕМ СТАРТ БОТА
+        sys.exit(1)  # 🔴 БЛОКИРУЕМ СТАРТ
     
     logger.info("✅ All required settings validated successfully!")
     logger.info("=" * 70)
 
-
 def _validate_critical_paths(settings_obj: Settings) -> None:
-    """
-    ✅ ИСПРАВЛЕНО: Проверяет наличие критичных директорий.
-    data_initial/ ДОЛЖНА существовать (там контент бота).
-    """
-    
+    """Проверяет наличие критичных директорий."""
     logger.info("")
     logger.info("=" * 70)
     logger.info("🔍 VALIDATING CRITICAL PATHS")
@@ -212,11 +190,6 @@ def _validate_critical_paths(settings_obj: Settings) -> None:
     if not settings_obj.DATA_INITIAL_DIR.exists():
         logger.critical(f"❌ MISSING: data_initial directory")
         logger.critical(f"   Path: {settings_obj.DATA_INITIAL_DIR}")
-        logger.critical(f"   This directory must contain:")
-        logger.critical(f"     - universe_laws.json")
-        logger.critical(f"     - fotinia_motivations.json")
-        logger.critical(f"     - challenges.json")
-        logger.critical(f"     - ... and other content files")
         critical_issues.append("data_initial")
     else:
         logger.info(f"✅ data_initial directory: {settings_obj.DATA_INITIAL_DIR}")
@@ -229,7 +202,6 @@ def _validate_critical_paths(settings_obj: Settings) -> None:
         else:
             logger.info(f"✅ DATA_DIR is writable: {settings_obj.DATA_DIR}")
     
-    # Если есть критичные проблемы → блокируем старт
     if critical_issues:
         logger.critical("=" * 70)
         logger.critical("🚨 CRITICAL: MISSING OR INACCESSIBLE PATHS!")
@@ -239,13 +211,8 @@ def _validate_critical_paths(settings_obj: Settings) -> None:
     logger.info("✅ All critical paths validated successfully!")
     logger.info("=" * 70)
 
-
 def _validate_bot_token_format(settings_obj: Settings) -> None:
-    """
-    ✅ ИСПРАВЛЕНО: Базовая проверка формата BOT_TOKEN.
-    Токен Telegram должен быть в формате: DIGITS:STRING
-    """
-    
+    """Проверка формата BOT_TOKEN."""
     logger.info("")
     logger.info("=" * 70)
     logger.info("🔍 VALIDATING BOT TOKEN FORMAT")
@@ -259,28 +226,18 @@ def _validate_bot_token_format(settings_obj: Settings) -> None:
     
     if ":" not in token:
         logger.critical("❌ BOT_TOKEN has invalid format!")
-        logger.critical("   Expected format: DIGITS:STRING (e.g., 123456789:ABCdefGHIjklMNOpqrSTUvwxyz)")
         sys.exit(1)
     
     parts = token.split(":")
-    if len(parts) != 2:
-        logger.critical("❌ BOT_TOKEN has invalid format!")
-        logger.critical("   Expected format: DIGITS:STRING")
-        sys.exit(1)
-    
-    if not parts[0].isdigit():
-        logger.critical("❌ BOT_TOKEN: first part should be digits only!")
+    if len(parts) != 2 or not parts[0].isdigit():
+        logger.critical("❌ BOT_TOKEN format error!")
         sys.exit(1)
     
     logger.info(f"✅ BOT_TOKEN format is valid: {parts[0]}:***")
     logger.info("=" * 70)
 
-
 def _validate_admin_chat_id(settings_obj: Settings) -> None:
-    """
-    ✅ ИСПРАВЛЕНО: Проверка ADMIN_CHAT_ID (должен быть число > 0).
-    """
-    
+    """Проверка ADMIN_CHAT_ID."""
     logger.info("")
     logger.info("=" * 70)
     logger.info("🔍 VALIDATING ADMIN_CHAT_ID")
@@ -288,19 +245,14 @@ def _validate_admin_chat_id(settings_obj: Settings) -> None:
     
     admin_id = settings_obj.ADMIN_CHAT_ID
     
-    if not isinstance(admin_id, int):
-        logger.critical(f"❌ ADMIN_CHAT_ID must be integer, got {type(admin_id)}")
-        sys.exit(1)
-    
-    if admin_id <= 0:
-        logger.critical(f"❌ ADMIN_CHAT_ID must be positive, got {admin_id}")
+    if not isinstance(admin_id, int) or admin_id <= 0:
+        logger.critical(f"❌ ADMIN_CHAT_ID must be positive integer")
         sys.exit(1)
     
     logger.info(f"✅ ADMIN_CHAT_ID is valid: {admin_id}")
     logger.info("=" * 70)
 
-
-# --- ГЛАВНАЯ ПРОЦЕДУРА ЗАГРУЗКИ И ВАЛИДАЦИИ ---
+# --- ГЛАВНАЯ ПРОЦЕДУРА ЗАГРУЗКИ ---
 logger.info("")
 logger.info("=" * 70)
 logger.info("🚀 INITIALIZING BOT CONFIGURATION")
@@ -324,7 +276,7 @@ _validate_bot_token_format(settings)
 _validate_admin_chat_id(settings)
 _validate_critical_paths(settings)
 
-# --- ПРОИЗВОДНЫЕ КОНСТАНТЫ (загружаются ПОСЛЕ валидации) ---
+# --- ПРОИЗВОДНЫЕ КОНСТАНТЫ ---
 FILE_MAPPING = {
     "rules": "universe_laws.json",
     "motivations": "fotinia_motivations.json",
@@ -337,16 +289,16 @@ FILE_MAPPING = {
 }
 
 DEFAULT_BROADCAST_KEYS: List[str] = [
-    "morning_phrases", 
-    "goals", 
-    "day_phrases", 
+    "morning_phrases",
+    "goals",
+    "day_phrases",
     "evening_phrases"
 ]
 
 DEFAULT_TZ = ZoneInfo(settings.DEFAULT_TZ_KEY)
 SPECIAL_USER_IDS = settings.TESTER_USER_IDS.union(settings.SIMULATOR_USER_IDS).union({settings.ADMIN_CHAT_ID})
 
-# --- ФИНАЛЬНОЕ ЛОГИРОВАНИЕ (все готово) ---
+# --- ФИНАЛЬНОЕ ЛОГИРОВАНИЕ ---
 logger.info("")
 logger.info("=" * 70)
 logger.info("✨ BOT CONFIGURATION SUCCESSFULLY INITIALIZED")

@@ -1,31 +1,7 @@
 # 02 - bot/database.py
-# 02 - bot/database.py - 26.01.2026
-# 02 - bot/database.py - 27.01.2026
-# Менеджер базы данных SQLite (Final Version with WAL + Stats Fixes)
-# Менеджер базы данных SQLite (Robust Version: Fixes Double JSON Encoding)
-# Менеджер базы данных SQLite (FINAL FIX: Лечит FSM и Челленджи)
-# Менеджер базы данных SQLite (FINAL FIX: Bulletproof JSON)
-# Менеджер базы данных SQLite (ULTIMATE FIX: Recursive JSON Unwrapping)
-# Менеджер базы данных SQLite (ULTIMATE FIX: FSM Logic Separation)
-# Асинхронный менеджер базы данных SQLite (WAL + миграции + безопасный JSON)
-# ИСПРАВЛЕНО: Аргументы add_user синхронизированы с Middleware
-# Менеджер базы данных SQLite (Final Version with WAL + Stats Fixes)
-# (ФИНАЛЬНАЯ ВЕРСИЯ: Исправлено обновление языка при перезапуске)
+# 02 - bot/database.py - ФИНАЛЬНАЯ ВЕРСИЯ (22.02.2026)
 # Менеджер базы данных SQLite
-# ИСПРАВЛЕНО (2026-01-13): Двойное JSON кодирование + Новые индексы + Улучшенное логирование
-# Менеджер базы данных SQLite (ULTIMATE VERSION)
-# ИСПРАВЛЕНО (2026-01-16): Белый список полей + защита от неизвестных параметров
-# Менеджер базы данных SQLite (ULTIMATE VERSION)
-# ✅ СОХРАНЕНО: WAL режим, рекурсивный JSON, белый список полей
-# ✅ ПРОВЕРЕНО (2026-01-26): Полная поддержка логики челленджей и 5+1+5
-# ✅ ДОБАВЛЕНО (2026-01-27): Поле last_level_checked для системы уровней
-# 02 - bot/database.py
-# ✅ ULTIMATE VERSION (28.01.2026)
-# ✅ ВОССТАНОВЛЕНО: FSM методы (update_fsm_storage, get_fsm_storage)
-# ✅ ВОССТАНОВЛЕНО: SQL методы (execute, commit)
-# ✅ ДОБАВЛЕНО: Реферальная система и текстовая статистика
-# ✅ СОХРАНЕНО: WAL, Индексы, Рекурсивный JSON, Логика DEFAULT 'ru'
-# ✅ ИСПРАВЛЕНО (29.01.2026): Добавлено поле last_broadcast_date для защиты от дублей
+# ✅ ПРОВЕРЕНО: WAL режим, защита от дублей рассылки, реферальная система
 
 import aiosqlite
 import json
@@ -95,16 +71,16 @@ class Database:
                 ("demo_count", "INTEGER DEFAULT 1"),
                 ("challenges_today", "INTEGER DEFAULT 0"),
                 ("last_level_checked", "TEXT DEFAULT 'level_0'"),
-                ("referred_by", "INTEGER"),      
+                ("referred_by", "INTEGER"),
                 ("created_at", "TEXT"),
-                ("last_broadcast_date", "TEXT"),  # ✅ ДОБАВЛЕНО: Для защиты от дублей рассылки
+                ("last_broadcast_date", "TEXT"),  # ✅ Защита от дублей рассылки
             ]
             
             for col, definition in cols:
                 try:
                     await conn.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
                 except Exception:
-                    pass  
+                    pass  # Колонка уже существует
             
             await conn.commit()
             logger.info("Database: ULTIMATE init complete. All fields and methods ready.")
@@ -170,7 +146,7 @@ class Database:
             "last_rules_date", "rules_shown_count", "rules_indices_today",
             "sent_expiry_warning", "stats_likes", "stats_dislikes", "demo_count",
             "challenges_today", "data", "last_level_checked",
-            "referred_by", "created_at", "last_broadcast_date",  # ✅ ДОБАВЛЕНО
+            "referred_by", "created_at", "last_broadcast_date",
         }
 
         JSON_FIELDS = {"challenges", "rules_indices_today", "data", "fsm_data"}
@@ -224,7 +200,7 @@ class Database:
             await conn.commit()
             logger.warning(f"Database: User {user_id} deleted (Test mode).")
 
-    # ========== 📊 МЕТОДЫ СТАТИСТИКИ (28.01.2026) ==========
+    # ========== 📊 МЕТОДЫ СТАТИСТИКИ ==========
     
     async def get_total_users_count(self) -> int:
         async with aiosqlite.connect(self.db_path) as conn:

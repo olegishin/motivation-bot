@@ -1,96 +1,139 @@
-# S:\fotinia_bot\templates\index.html
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fotinia WebApp</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fotinia Bot - Твой помощник по саморазвитию</title>
     <style>
-        body {
-            background-color: var(--tg-theme-bg-color, #ffffff);
-            color: var(--tg-theme-text-color, #000000);
-            font-family: sans-serif;
+        * {
             margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            padding: 0;
+            box-sizing: border-box;
         }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
         .container {
-            width: 100%;
-            max-width: 400px;
+            max-width: 600px;
             text-align: center;
         }
-        .btn-main {
-            background-color: var(--tg-theme-button-color, #3390ec);
-            color: var(--tg-theme-button-text-color, #ffffff);
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            width: 100%;
-            font-weight: bold;
-            margin-top: 20px;
-        }
-        .info-card {
-            background-color: var(--tg-theme-secondary-bg-color, #f4f4f5);
-            border-radius: 12px;
-            padding: 15px;
+        
+        .logo {
+            font-size: 80px;
             margin-bottom: 20px;
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        
+        h1 {
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        
+        .subtitle {
+            font-size: 20px;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+        
+        .features {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .feature {
+            margin: 20px 0;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .feature-icon {
+            font-size: 24px;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            background: white;
+            color: #667eea;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 18px 50px;
+            border-radius: 50px;
+            text-decoration: none;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .cta-button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+        }
+        
+        .footer {
+            margin-top: 50px;
+            font-size: 14px;
+            opacity: 0.7;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="info-card">
-            <h4>Привет, <span id="user-name">Гость</span>!</h4>
-            <p>Добро пожаловать в Фотинию.</p>
+        <div class="logo">🌟</div>
+        <h1>Fotinia</h1>
+        <p class="subtitle">Твой персональный бот-помощник по саморазвитию</p>
+        
+        <div class="features">
+            <div class="feature">
+                <span class="feature-icon">💪</span>
+                <span>Мотивация 4 раза в день</span>
+            </div>
+            <div class="feature">
+                <span class="feature-icon">⚔️</span>
+                <span>Ежедневные челленджи</span>
+            </div>
+            <div class="feature">
+                <span class="feature-icon">📜</span>
+                <span>Правила Вселенной</span>
+            </div>
+            <div class="feature">
+                <span class="feature-icon">🎯</span>
+                <span>Система уровней и достижений</span>
+            </div>
+            <div class="feature">
+                <span class="feature-icon">🔥</span>
+                <span>Стрики и геймификация</span>
+            </div>
         </div>
-
-        <div id="status-area" class="small text-muted mb-3">
-            Синхронизация настроек...
+        
+        <a href="https://t.me/fotinia_bot" class="cta-button">
+            Открыть бота 🚀
+        </a>
+        
+        <div class="footer">
+            Fotinia Bot &copy; 2026<br>
+            Создано с любовью для твоего роста
         </div>
-
-        <button class="btn-main" onclick="tg.close()">Закрыть</button>
     </div>
-
-    <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
-
-        const userName = tg.initDataUnsafe?.user?.first_name || "Пользователь";
-        document.getElementById('user-name').innerText = userName;
-
-        (function() {
-            const userId = tg.initDataUnsafe?.user?.id;
-            const statusArea = document.getElementById('status-area');
-            
-            if (userId) {
-                const offsetMinutes = new Date().getTimezoneOffset();
-                
-                fetch('/admin/set_timezone_auto', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        user_id: userId,
-                        offset: offsetMinutes
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'ok') {
-                        statusArea.innerText = `Ваш часовой пояс определен: ${data.tz}`;
-                    }
-                })
-                .catch(err => {
-                    console.error('TZ sync error:', err);
-                    statusArea.innerText = '';
-                });
-            }
-        })();
-    </script>
 </body>
 </html>

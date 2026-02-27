@@ -1,25 +1,13 @@
 # 10 - bot/callbacks.py
-# Полная версия: Исправлено создание пользователя и синхронизация языка/данных
-# Обработчики Inline-кнопок Aiogram (Язык, Реакции, Челленджи)
-# ✅ ИСПРАВЛЕНО (2026-01-16): 
-#    - Убран параметр is_new_user (Ошибка #2)
-#    - Исправлен full_name → name (Ошибка #1)
-#    - Логирование для отладки
-# ✅ ИСПРАВЛЕНО (2026-01-20):
-#    - Повторное нажатие на реакцию → ТОЛЬКО всплывающее окно (show_alert=True)
-#    - Убрано текстовое сообщение query.message.reply() при повторе
-# ✅ ИСПРАВЛЕНО (2026-01-23): 
-#    - Кнопки не пропадают после выбора языка
-#    - Админские кнопки показываются сразу для админа
-# ✅ ИСПРАВЛЕНО (2026-01-26): 
-#    - handle_reaction не зависит от middleware, все данные берет из БД
-# 10 - bot/callbacks.py
-# ✅ ВЫДАНО ЦЕЛИКОМ ДЛЯ ЗАМЕНЫ — ПОЛНАЯ СВЕРКА (28.01.2026)
-# ✅ СИНХРОНИЗИРОВАНО: 3+1+3 (Проверка Cooldown), Челленджи, Реакции
-# ✅ ИСПРАВЛЕНО: callback_data для челленджей совпадает с keyboards.py
-# ✅ СОХРАНЕНО: Защита от дублей реакций, Smart Ban, логика имен Олега
-# ✅ ИСПРАВЛЕНО (29.01.2026): Новый пользователь получает полное приветствие
-# ✅ СОХРАНЕНО: Вся логика Cooldown, реакции, челленджи, админ-панель
+# ✅ Обработка Inline-кнопок (выбор языка, реакции, челленджи)
+# ✅ Защита от несанкционированного доступа
+# ✅ Логика первого запуска (выбор языка с полным приветствием)
+# ✅ Обработка реакций (лайки/дизлайки) с защитой от дублей
+# ✅ Кнопки челленджей (принять, новый, выполнить)
+
+# 10 - bot/callbacks.py - ФИНАЛЬНАЯ ВЕРСИЯ (23.02.2026)
+# Обработчики Inline-кнопок
+# ✅ ПРОВЕРЕНО: Защита от дублей, логика 3+1+3, реакции
 
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardButton
@@ -162,7 +150,7 @@ async def handle_reaction(query: CallbackQuery, user_data: dict, lang: Lang):
 
 # --- ⚔️ ЧЕЛЛЕНДЖИ ---
 
-@router.callback_query(F.data.startswith("accept_challenge:"))
+@router.callback_query(F.data.startswith("accept_challenge"))
 async def handle_accept_challenge(query: CallbackQuery, static_data: dict, user_data: dict, lang: Lang, state: FSMContext):
     if user_data.get("status") == "cooldown":
         return await query.answer(t('btn_quiet_day_lock', lang), show_alert=True)

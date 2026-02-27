@@ -1,27 +1,63 @@
-# flyctl launch added from venv\.gitignore
-# Created by venv; see https://docs.python.org/3/library/venv.html
-
-venv/**/*
-fly.toml
-
 # 🔒 Защита пользовательских данных
 users.json
+backup_users_old.json
+*.json.bak
 
-# 🧹 Кэш и временные файлы
+# 🔐 Секреты и конфиденциальная информация
+.env
+.env.local
+.env.production
+*.key
+*.pem
+
+# 🗄️ База данных SQLite (хранится на Fly.io volume)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# 🧹 Кэш Python
 __pycache__/
-*.pyc
-*.pyo
-*.log
+*.py[cod]
+*$py.class
+*.so
+.Python
 
-# 📦 Установленные зависимости
+# 📦 Виртуальное окружение и зависимости
+venv/
+env/
+ENV/
+.venv
 *.egg-info/
 dist/
 build/
+pip-log.txt
+pip-delete-this-directory.txt
 
 # 📁 IDE и редакторы
 .vscode/
 .idea/
 *.swp
-*.env
-*.bak
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 📝 Логи и временные файлы
+*.log
 *.tmp
+*.bak
+*.cache
+.pytest_cache/
+
+# 🐳 Docker (локальные артефакты)
+.dockerignore.bak
+
+# ☁️ Fly.io (локальные настройки)
+.fly/
+
+# 📊 Покрытие тестов
+.coverage
+htmlcov/
+.tox/

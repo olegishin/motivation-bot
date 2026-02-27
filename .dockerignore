@@ -3,9 +3,6 @@ venv/
 env/
 ENV/
 
-# Fly.io configuration file (не нужно в образе)
-fly.toml
-
 # IDE and editor configuration
 .vscode/
 .idea/
@@ -57,3 +54,5 @@ backup_*.json
 
 # НЕ ВКЛЮЧАЕМ templates/ - они НУЖНЫ в продакшене!
 # НЕ ВКЛЮЧАЕМ static/ - они НУЖНЫ в продакшене!
+# НЕ ВКЛЮЧАЕМ fly.toml - он НУЖЕН для Fly.io!
+# НЕ ВКЛЮЧАЕМ data_initial/ - она НУЖНА для контента!

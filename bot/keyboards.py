@@ -1,56 +1,13 @@
 ﻿# 04 - bot/keyboards.py
-# 04 - bot/keyboards.py - 26.01.2026
-# 04 - bot/keyboards.py
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# Исправленная версия: поддержка галочек ✅ и аргумента user_name
-# Поддержка ✅ на кнопках и логика WebApp профиля
-# (ФИНАЛЬНАЯ ВЕРСИЯ: Ссылка на оплату берется из конфига)
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# ФИНАЛЬНАЯ ВЕРСИЯ: Исправлен порядок текста в кнопке "Поделиться" (Призыв первым)
-# ПОЛНАЯ СВЕРКА: Сохранены WebApp, логика админа и поддержка галочек реакций
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# ФИНАЛЬНАЯ ВЕРСИЯ: Исправлен порядок текста в кнопке "Поделиться" (2026-01-14)
-# FIX: Внедрена обрезка цитаты до 300 знаков для гарантированной работы кнопки
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# ФИНАЛЬНАЯ ВЕРСИЯ: Исправлен порядок текста в кнопке "Поделиться" (2026-01-14)
-# FIX: Улучшена работа кнопки "Поделиться" (удален лишний url= параметр, оставлен только text=)
-# ПОЛНАЯ СВЕРКА: Сохранены WebApp, логика админа и поддержка галочек реакций
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# ФИНАЛЬНАЯ ВЕРСИЯ: Исправлен порядок текста в кнопке "Поделиться" (2026-01-14)
-# ПОЛНАЯ СВЕРКА: Сохранены WebApp, логика админа, поддержка ✅ и аргумент user_name
-# ФАЙЛ ВЫДАН ЦЕЛИКОМ ДЛЯ ЗАМЕНЫ
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# ФИНАЛЬНАЯ ВЕРСИЯ: Исправлен порядок текста в кнопке "Поделиться" (2026-01-14)
-# ПОЛНАЯ СВЕРКА: Сохранены WebApp, логика админа, поддержка ✅ и аргумент user_name
-# FIX: Восстановлена корректная проверка ADMIN_CHAT_ID
-# 04 - bot/keyboards.py
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# Исправленная версия: поддержка галочек ✅ и аргумента user_name
-# Поддержка ✅ на кнопках и логика WebApp профиля
-# (ФИНАЛЬНАЯ ВЕРСИЯ: Ссылка на оплату берется из конфига)
-# 04 - bot/keyboards.py
-# Поддержка ✅ на кнопках и классическая логика цитирования
-# Исправленная версия: поддержка галочек ✅ и аргумента user_name
-# Поддержка ✅ на кнопках и логика WebApp профиля
-# (ФИНАЛЬНАЯ ВЕРСИЯ: Ссылка на оплату берется из конфига)
-# FIX: Меню теперь всегда развернуто (is_persistent=True во всех Reply-клавиатурах)
-# 04 - bot/keyboards.py
-# ULTIMATE VERSION: Fixed persistent menu + Share logic + Admin Fix
-# ПОЛНАЯ СВЕРКА: Меню теперь всегда развернуто (is_persistent=True)
-# ULTIMATE VERSION: Fixed persistent menu + Share logic + Admin Fix
-# ✅ ИСПРАВЛЕНО (2026-01-18): 
-#    - Гарантированное отображение админ-кнопок (ID casting)
-#    - Поддержка ✅ на кнопках реакций
-#    - Синхронизация callback_data для демо-периода
-# ✅ ИСПРАВЛЕНО (2026-01-26):
-#    - Исправлена функция is_demo_expired (вместо check_demo_status)
-#    - Админские кнопки показываются всегда для админа
+# ✅ Все кнопки бота (основное меню, админ-панель, настройки)
+# ✅ WebApp кнопка профиля
+# ✅ Inline-кнопки для челленджей, реакций, оплаты
+# ✅ Логика показа кнопок в зависимости от статуса (Demo/Premium/Cooldown)
+# ✅ Кнопка "Поделиться" с правильным форматированием
 
-# 04 - bot/keyboards.py
-# ✅ ВЫДАНО ЦЕЛИКОМ ДЛЯ ЗАМЕНЫ — ПОЛНАЯ СВЕРКА (28.01.2026)
-# ✅ СИНХРОНИЗИРОВАНО: Логика 3+1+3 (Cooldown), Реферальная программа
-# ✅ ИСПРАВЛЕНО: Меню всегда развернуто (is_persistent=True), Админ-фикс
-# ✅ СОХРАНЕНО: WebApp Профиль, Поддержка ✅, Логика "Поделиться"
+# 04 - bot/keyboards.py - ФИНАЛЬНАЯ ВЕРСИЯ (30.01.2026)
+# Все клавиатуры бота (Reply и Inline)
+# ✅ ПРОВЕРЕНО: WebApp профиль, логика 3+1+3, кнопки реакций
 
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -79,13 +36,13 @@ def get_main_keyboard(lang: Lang, user_id: int) -> ReplyKeyboardMarkup:
         KeyboardButton(text=t('btn_challenge', lang)),
         KeyboardButton(text=t('btn_rules', lang))
     )
-    # 3 ряд: Профиль (WebApp) и Рефералы (Новинка аудита)
+    # 3 ряд: Профиль (WebApp) и Поделиться
     builder.row(
         KeyboardButton(
             text=t('btn_profile', lang), 
             web_app=WebAppInfo(url=f"{settings.BASE_URL}/profile/{user_id}")
         ),
-        KeyboardButton(text=t('btn_share', lang)) # Кнопка приглашения/рефералки
+        KeyboardButton(text=t('btn_share', lang))
     )
     # 4 ряд: Настройки
     builder.row(KeyboardButton(text=t('btn_settings', lang)))
@@ -144,7 +101,6 @@ def get_reply_keyboard_for_user(chat_id: int, lang: Lang, user_data: Dict[str, A
     status = user_data.get("status", "active_demo")
 
     # 2. Если пользователь в "Дне тишины" (Cooldown) или Демо истекло
-    # Мы ограничиваем меню, оставляя только критические кнопки
     from datetime import datetime, timezone
     demo_expired = False
     if not is_paid:
@@ -220,7 +176,7 @@ def get_challenge_buttons(lang: Lang, challenge_id: Optional[int] = None) -> Inl
     """Принятие или выбор нового челленджа."""
     builder = InlineKeyboardBuilder()
     if challenge_id is not None:
-        builder.button(text=t("btn_challenge_accept", lang), callback_data=f"accept_challenge:{challenge_id}")
+        builder.button(text=t("btn_challenge_accept", lang), callback_data=f"accept_challenge_idx:{challenge_id}")
     builder.button(text=t("btn_challenge_new", lang), callback_data="new_challenge")
     builder.adjust(1)
     return builder.as_markup()

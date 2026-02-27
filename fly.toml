@@ -1,5 +1,14 @@
 # fly.toml — финальная рабочая версия (декабрь 2025)
-app = 'fotinia-final-floral-sky-143'
+# ✅ Конфигурация для деплоя на Fly.io
+# ✅ Настройки приложения (имя, регион, порт)
+# ✅ Монтирование volume для базы данных
+# ✅ Health check (проверка здоровья бота)
+# ✅ Настройки памяти и CPU
+
+# fly.toml - ФИНАЛЬНАЯ ВЕРСИЯ (23.02.2026)
+# Конфигурация Fly.io для Fotinia Bot
+
+app = 'fotinia-final-thrumming-wind-4793'
 primary_region = 'fra'
 
 [build]
@@ -11,7 +20,7 @@ primary_region = 'fra'
   PORT = '8080'
   PYTHONUNBUFFERED = '1'
   # URL твоего приложения для установки вебхука
-  WEBHOOK_URL = 'https://fotinia-final-floral-sky-143.fly.dev'
+  WEBHOOK_URL = 'https://fotinia-final-thrumming-wind-4793.fly.dev'
 
 [processes]
   web = 'uvicorn bot.main:app --host 0.0.0.0 --port 8080'
@@ -29,9 +38,9 @@ primary_region = 'fra'
   processes = ['web']
 
   [[http_service.checks]]
-    interval = '30s'      # Проверка каждые 30 секунд
-    timeout = '10s'       # Таймаут на ответ 10 секунд
-    grace_period = '90s'  # Даем полторы минуты на загрузку всех модулей и базы
+    interval = '30s'
+    timeout = '10s'
+    grace_period = '90s'
     method = 'GET'
     path = '/'
     protocol = 'http'

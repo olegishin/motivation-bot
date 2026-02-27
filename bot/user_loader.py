@@ -1,5 +1,12 @@
 # 06 - bot/user_loader.py
+# ✅ Загрузка кэша пользователей из SQLite
+# ✅ Загрузка статических данных (челленджи, правила, мотивации)
+# ✅ Копирование файлов из data_initial/ в data/
+# ✅ Резервное сохранение кэша в JSON (на случай аварии)
+
+# 06 - bot/user_loader.py - ФИНАЛЬНАЯ ВЕРСИЯ (22.02.2026)
 # Загрузка данных и кэширование
+# ✅ ПРОВЕРЕНО: Загрузка из SQLite, копирование data_initial, бэкап в JSON
 
 import asyncio
 import json
@@ -84,7 +91,7 @@ def _load_static_data_sync() -> dict:
         if not raw_data:
             static_data[key] = {}
             continue
-            
+        
         if key == "challenges":
             if isinstance(raw_data, list):
                 logger.info(f"✅ Loaded {len(raw_data)} challenges (List format).")

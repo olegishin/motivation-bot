@@ -1,140 +1,310 @@
 <!DOCTYPE html>
-<html lang="{{ lang }}">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Fotinia Profile</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        :root { 
-            --gold: #D4AF37; --bg: var(--tg-theme-bg-color, #F0F2F5); --card: var(--tg-theme-secondary-bg-color, #FFFFFF); 
-            --text: var(--tg-theme-text-color, #1C1C1E); --subtext: var(--tg-theme-hint-color, #8E8E93); 
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        body { 
-            font-family: -apple-system, system-ui, sans-serif; background-color: var(--bg); color: var(--text); 
-            margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; 
-            -webkit-user-select: none;
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            padding: 20px;
+            min-height: 100vh;
         }
-        .container { width: 100%; max-width: 400px; }
-        .card { 
-            background: var(--card); border-radius: 24px; padding: 25px; 
-            box-shadow: 0 8px 24px rgba(0,0,0,0.08); position: relative; 
+        
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .avatar {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            font-weight: bold;
+            color: white;
+            margin: 0 auto 15px;
+        }
+        
+        .name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .username {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        
+        .status-premium {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        
+        .status-demo {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+        
+        .section {
+            margin: 25px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 15px;
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .level-info {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .level-emoji {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        
+        .level-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .level-days {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: #e0e0e0;
+            border-radius: 10px;
             overflow: hidden;
+            margin: 15px 0;
         }
         
-        /* Виджет батарейки */
-        .battery-container { position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 6px; }
-        .battery-body { 
-            width: 32px; height: 16px; border: 2px solid #E5E5EA; border-radius: 4px; 
-            position: relative; padding: 1px; 
-        }
-        .battery-body::after { 
-            content: ''; position: absolute; right: -5px; top: 3px; 
-            width: 3px; height: 6px; background: #E5E5EA; border-radius: 0 2px 2px 0; 
-        }
-        .battery-level { height: 100%; border-radius: 1px; transition: all 0.5s ease; }
-        
-        .header { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
-        #user-photo { 
-            width: 64px; height: 64px; border-radius: 50%; 
-            background: #EEE; object-fit: cover; border: 2px solid var(--gold); 
-        }
-        .name-block { display: flex; flex-direction: column; }
-        .name { font-size: 22px; font-weight: 800; margin: 0; line-height: 1.2; }
-        .status-badge { 
-            font-size: 11px; color: var(--gold); font-weight: 700; 
-            text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px;
-        }
-        .level-text { font-size: 14px; font-weight: 600; color: var(--subtext); margin-top: 2px; }
-
-        .progress-section { margin: 25px 0; }
-        .progress-label { 
-            display: flex; justify-content: space-between; font-size: 13px; 
-            color: var(--subtext); margin-bottom: 8px; font-weight: 600; 
-        }
-        .progress-bg { background: #F2F2F7; height: 10px; border-radius: 5px; overflow: hidden; }
-        .progress-fill { 
-            background: linear-gradient(90deg, var(--gold), #FFD700); 
-            height: 100%; transition: width 1s ease-in-out; 
-        }
-
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .stat-item { 
-            background: rgba(0,0,0,0.02); padding: 15px; border-radius: 18px; 
-            text-align: center; border: 1px solid rgba(0,0,0,0.05); 
-        }
-        .stat-value { display: block; font-size: 20px; font-weight: 700; color: var(--text); }
-        .stat-desc { 
-            font-size: 10px; color: var(--subtext); text-transform: uppercase; 
-            font-weight: 700; margin-top: 4px; letter-spacing: 0.3px;
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            transition: width 0.3s ease;
         }
         
-        .close-btn { 
-            width: 100%; padding: 18px; background: var(--tg-theme-button-color, #1C1C1E); 
-            color: var(--tg-theme-button-text-color, white); 
-            border: none; border-radius: 18px; font-size: 16px; font-weight: 700; 
-            margin-top: 25px; cursor: pointer; transition: all 0.2s;
+        .battery {
+            display: flex;
+            gap: 4px;
+            justify-content: center;
+            margin-top: 15px;
         }
-        .close-btn:active { transform: scale(0.98); opacity: 0.9; }
+        
+        .battery-cell {
+            width: 30px;
+            height: 40px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            position: relative;
+            background: white;
+        }
+        
+        .battery-cell.filled {
+            background: linear-gradient(180deg, #4facfe 0%, #00f2fe 100%);
+            border-color: #4facfe;
+        }
+        
+        .battery-cell::after {
+            content: '';
+            position: absolute;
+            top: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 12px;
+            height: 4px;
+            background: #ddd;
+            border-radius: 2px 2px 0 0;
+        }
+        
+        .battery-cell.filled::after {
+            background: #4facfe;
+        }
+        
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        
+        .stat-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .days-remaining {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 12px;
+            margin-top: 15px;
+        }
+        
+        .days-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #f5576c;
+        }
+        
+        .days-label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 12px;
+            color: #999;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="card">
-            <div class="battery-container">
-                <span style="font-size: 10px; color: var(--subtext); font-weight: 800;">{{ battery_pct }}%</span>
-                <div class="battery-body">
-                    <div class="battery-level" style="width: {{ battery_pct }}%; background: {% if battery_pct > 50 %}#34C759{% elif battery_pct > 20 %}#FFCC00{% else %}#FF3B30{% endif %};"></div>
-                </div>
-            </div>
+        <div class="header">
+            <div class="avatar">{{ user.name[:1].upper() }}</div>
+            <div class="name">{{ user.name }}</div>
+            {% if user.username %}
+            <div class="username">@{{ user.username }}</div>
+            {% endif %}
+            <span class="status-badge {% if user.status == 'Paid' %}status-premium{% else %}status-demo{% endif %}">
+                {% if user.status == 'Paid' %}👑 Premium{% else %}🆓 Demo{% endif %}
+            </span>
+        </div>
 
-            <div class="header">
-                <img id="user-photo" src="{{ photo_url }}" alt="User">
-                <div class="name-block">
-                    <p class="name">{{ name }}</p>
-                    <span class="status-badge">{{ t('profile_your_status', lang) }}: {{ status_text }}</span>
-                    <span class="level-text">{{ t('profile_your_level', lang) }}: {{ level_text }}</span>
-                </div>
+        <div class="section">
+            <div class="section-title">🎯 Ваш уровень</div>
+            <div class="level-info">
+                <div class="level-emoji">{{ level_emoji }}</div>
+                <div class="level-name">{{ level_name }}</div>
+                <div class="level-days">День {{ user.active_days }} из {{ next_level_days }}</div>
             </div>
-
-            <div class="progress-section">
-                <div class="progress-label">
-                    <span>{{ t('profile_days_left', lang) }}</span>
-                    <span>{{ days_left }} {{ t('profile_days_unit', lang) }}</span>
-                </div>
-                <div class="progress-bg">
-                    {% set progress_days = (days_left / 5 * 100) if status_text.startswith('Демо') else 100 %}
-                    <div class="progress-fill" style="width: {{ progress_days }}%"></div>
-                </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: {{ progress_percent }}%"></div>
             </div>
-
-            <div class="stats-grid">
-                <div class="stat-item">
-                    <span class="stat-value">{{ accepted }}</span>
-                    <span class="stat-desc">{{ t('profile_challenges_accepted', lang) }}</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value">{{ completed }}</span>
-                    <span class="stat-desc">{{ t('profile_challenges_completed', lang) }}</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" style="color: #34C759;">{{ likes }} 👍</span>
-                    <span class="stat-desc">{{ t('profile_likes', lang) }}</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" style="color: #FF3B30;">{{ dislikes }} 👎</span>
-                    <span class="stat-desc">{{ t('profile_dislikes', lang) }}</span>
-                </div>
+            <div class="battery">
+                {% for i in range(7) %}
+                <div class="battery-cell {% if i < filled_cells %}filled{% endif %}"></div>
+                {% endfor %}
             </div>
         </div>
 
-        <button class="close-btn" onclick="Telegram.WebApp.close()">{{ t('btn_back', lang) }}</button>
+        <div class="section">
+            <div class="section-title">⚔️ Челленджи</div>
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📥</div>
+                    <div class="stat-value">{{ user.challenges_accepted }}</div>
+                    <div class="stat-label">Принято</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-value">{{ user.challenges_completed }}</div>
+                    <div class="stat-label">Выполнено</div>
+                </div>
+            </div>
+            <div class="stat-card" style="margin-top: 15px;">
+                <div class="stat-icon">🔥</div>
+                <div class="stat-value">{{ user.challenge_streak }}</div>
+                <div class="stat-label">Текущая серия</div>
+            </div>
+        </div>
+
+        {% if user.status != 'Paid' %}
+        <div class="section">
+            <div class="section-title">⏳ Доступ</div>
+            <div class="days-remaining">
+                <div class="days-value">{{ user.remaining_days }}</div>
+                <div class="days-label">дней осталось</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="footer">
+            Fotinia Bot &copy; 2026
+        </div>
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.headerColor = tg.themeParams.bg_color || '#F0F2F5';
-        tg.backgroundColor = tg.themeParams.bg_color || '#F0F2F5';
+        // Инициализация Telegram WebApp
+        if (window.Telegram && window.Telegram.WebApp) {
+            const tg = window.Telegram.WebApp;
+            tg.expand();
+            tg.ready();
+            
+            // Устанавливаем цвет header bar под наш градиент
+            tg.setHeaderColor('#667eea');
+        }
     </script>
 </body>
 </html>

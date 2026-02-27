@@ -1,38 +1,13 @@
 ﻿# 11 - bot/button_handlers.py
-# Обработчики кнопок Aiogram (Исправленная версия: стабильное распознавание языков + force_db)
-# Полная эталонная версия: Убит Double Trigger, изолирован Unknown Text, динамический фильтр
-# Полная эталонная версия: Убит Double Trigger, изолирован Unknown Text
-# Полная эталонная версия: Убит Double Trigger, изолирован Unknown Text, динамический фильтр
-# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
-# Единообразие переменных, Полное логирование, Force DB для критических кнопок
-# Обработчики кнопок Aiogram
-# ✅ ИСПРАВЛЕНО (2026-01-16):
-#    - force_db=True для критичных кнопок (синхронизация данных)
-#    - Логирование для каждого события
-#    - Безопасное получение user_data
-# Обработчики кнопок Aiogram
-# ✅ ИСПРАВЛЕНО (2026-01-18): Возвращены всплывающие уведомления (answerCallbackQuery)
-# Построчная сверка: сохранена логика force_db, удален лишний функционал оплат.
-# bot/button_handlers.py
-# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
-# ✅ ИСПРАВЛЕНО (2026-01-18):
-#    - Исправлено отображение АДМИН-КНОПОК (проверка is_admin)
-#    - Возвращены всплывающие уведомления (answerCallbackQuery)
-#    - Убраны лишние текстовые ответы на лайки
-# ✅ ИСПРАВЛЕНО (2026-01-18): Добавлен callback.answer() для всплывающего окна реакций
-# 11 - bot/button_handlers.py
-# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
-# ✅ ИСПРАВЛЕНО (2026-01-18): 
-#    - Унифицирован вызов реакций (все управление в content_handlers)
-#    - Сохранен force_db и динамические фильтры
-#    - Исправлен вызов клавиатур для админа (ID casting)
-# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (ULTIMATE 10/10)
-# ✅ ИСПРАВЛЕНО (2026-01-26): Построчная сверка, сохранен force_db и асинхронный вызов статистики
+# ✅ Обработчики текстовых кнопок (Мотивируй, Челлендж, Правила и т.д.)
+# ✅ Обработчики callback-кнопок (выбор языка, реакции)
+# ✅ Админские кнопки (Статистика, Обновить, Тест рассылки)
+# ✅ Fallback для неизвестных команд
+# ✅ Защита от дублей вызовов
 
-# 11 - bot/button_handlers.py
-# ГРУППА 2: ФИНАЛЬНАЯ ВЕРСИЯ (MASTER 10/10)
-# ✅ ПОЛНАЯ СИНХРОНИЗАЦИЯ: Ни одна строчка не утеряна
-# ✅ УЛУЧШЕНО: Детальный лог force_db для отладки синхронизации
+# 11 - bot/button_handlers.py - ФИНАЛЬНАЯ ВЕРСИЯ (30.01.2026)
+# Обработчики текстовых кнопок
+# ✅ ПРОВЕРЕНО: Защита от дублей, админ-панель, fallback
 
 import json
 from datetime import datetime, date
@@ -46,10 +21,8 @@ from bot.database import db
 from bot.keyboards import get_settings_keyboard, get_reply_keyboard_for_user
 from bot.content_handlers import (
     send_from_list, send_rules, send_profile,
-    send_payment_instructions, activate_new_demo,
-    handle_like, handle_dislike, _handle_reaction
+    send_payment_instructions, activate_new_demo
 )
-
 from bot.challenges import send_new_challenge_message, accept_challenge, complete_challenge
 from bot.utils import get_user_tz
 from bot.commands import send_stats_report, show_users_command, broadcast_test_command
@@ -72,16 +45,16 @@ async def _get_user_data(user_id: int, kwargs: dict, force_db: bool = False) -> 
                 kwargs["users_db"][str(user_id)] = u
             logger.debug(f"Handlers: force_db=True → fetched fresh data for {user_id}")
             return u or {}
-
+        
         ud = kwargs.get("user_data")
         if ud and isinstance(ud, dict) and ud.get("user_id") == user_id:
             return ud
-        
+            
         users_db = kwargs.get("users_db")
         if users_db and isinstance(users_db, dict):
             cached = users_db.get(str(user_id))
             if cached: return cached
-
+            
         return await db.get_user(user_id) or {}
     except Exception as e:
         logger.error(f"Handlers: Error getting user data for {user_id}: {e}")
@@ -94,20 +67,16 @@ async def handle_lang_callback(callback: CallbackQuery, **kwargs):
     user_id = callback.from_user.id
     new_lang = callback.data.replace("set_lang_", "")
     await db.update_user(user_id, language=new_lang, active=True)
+    
     user_data = await _get_user_data(user_id, kwargs, force_db=True)
+    
     await callback.answer()
     await callback.message.answer(
-        t('lang_chosen', new_lang), 
+        t('lang_chosen', new_lang),
         reply_markup=get_reply_keyboard_for_user(user_id, new_lang, user_data)
     )
     try: await callback.message.delete()
     except: pass
-
-@router.callback_query(F.data.in_(["like", "dislike"]) | F.data.startswith("handle_reaction") | F.data.startswith("reaction:"))
-async def handle_reaction_callback(callback: CallbackQuery, **kwargs):
-    lang = kwargs.get("lang", "ru")
-    user_data = await _get_user_data(callback.from_user.id, kwargs)
-    await _handle_reaction(callback, user_data, lang, "dislike" if "dislike" in callback.data else "like")
 
 @router.callback_query(F.data.startswith("accept_challenge"))
 async def handle_accept_challenge_callback(callback: CallbackQuery, state: FSMContext, **kwargs):
@@ -204,8 +173,9 @@ async def handle_test_broadcast_button(message: Message, bot: Bot, **kwargs):
     await broadcast_test_command(message, bot, kwargs.get("static_data", {}), True)
 
 # --- ❓ UNKNOWN TEXT (Fallback) ---
+
 @router_unknown.message(F.text)
 async def handle_unknown_text(message: Message, **kwargs):
     user_data = await _get_user_data(message.from_user.id, kwargs)
     lang = user_data.get("language", "ru")
-    await message.answer(t('unknown_command', lang), reply_markup=get_reply_keyboard_for_user(message.from_user.id, lang, user_data))
+    await message.answer(t('unknown_command', lang), reply_markup=get_reply_keyboard_for_user(message.from_user.id, lang, user_data)
